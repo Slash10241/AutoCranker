@@ -50,9 +50,10 @@ class IntakeResult:
 
 
 class IntakeAgent:
-    def __init__(self, llm_client: GeminiClient, app_name: str) -> None:
+    def __init__(self, llm_client: GeminiClient, app_name: str, system_prompt: str = "") -> None:
         self.llm_client = llm_client
         self.app_name = app_name
+        self.system_prompt = system_prompt
 
     def run(
         self,
@@ -62,6 +63,7 @@ class IntakeAgent:
         active_case: Optional["RepairCase"],
         vehicle: Optional["Vehicle"],
         garage: Optional["GarageSettings"],
+        booked_slots: Optional[List[datetime]] = None,
     ) -> IntakeResult:
         label = f"customer_id={customer.id}"
         if not self.llm_client.available:
@@ -70,7 +72,7 @@ class IntakeAgent:
             log_agent_run("intake", label, message=message, fallback="llm_unavailable", result=result)
             return result
 
-        prompt = self._build_prompt(message, history, customer, active_case, vehicle, garage)
+        prompt = self._build_prompt(message, history, customer, active_case, vehicle, garage, booked_slots)
         raw = self.llm_client.generate_json(prompt)
         if not raw:
             logger.warning("IntakeAgent: LLM returned empty/invalid JSON, using fallback")
@@ -126,6 +128,7 @@ class IntakeAgent:
         active_case: Optional["RepairCase"],
         vehicle: Optional["Vehicle"],
         garage: Optional["GarageSettings"],
+        booked_slots: Optional[List[datetime]] = None,
     ) -> str:
         now = datetime.now(timezone.utc)
         garage_name = garage.name if garage else self.app_name
@@ -136,8 +139,10 @@ class IntakeAgent:
         vehicle_text = _format_vehicle(vehicle)
         active_case_text = _format_active_case(active_case)
         history_text = _format_history(history)
+        booked_slots_text = _format_booked_slots(booked_slots)
 
-        return f"""You are the AI front-desk assistant for {garage_name}, a car repair garage.
+        system_prefix = f"{self.system_prompt}\n\n" if self.system_prompt else ""
+        return f"""{system_prefix}You are the AI front-desk assistant for {garage_name}, a car repair garage.
 
 Today: {now.strftime("%A %d %B %Y")}. Time: {now.strftime("%H:%M")} UTC. Garage timezone: {tz_name}.
 
@@ -154,6 +159,9 @@ WhatsApp: {customer.phone_number}
 === ACTIVE REPAIR CASE ===
 {active_case_text}
 
+=== ALREADY BOOKED APPOINTMENT SLOTS (unavailable) ===
+{booked_slots_text}
+
 === CONVERSATION SO FAR ===
 {history_text}
 
@@ -161,18 +169,23 @@ WhatsApp: {customer.phone_number}
 {message}
 
 === YOUR TASK ===
-Reply to the customer on WhatsApp. Be short, friendly, and natural (this is a chat message).
+Reply to the customer on WhatsApp. Be short and natural (this is a chat message).
+
+CONVERSATION FLOW — follow this order strictly:
+PHASE 1 (collecting_info): Collect ALL of the following before moving on — car problem description, vehicle make, vehicle model, vehicle year, mileage. Ask for only ONE missing field per message. Check KNOWN VEHICLE above first — do not ask for fields already filled. If the customer says "I don't know" or similar for a field, skip it and move to the next. Stay in Phase 1 until all collectible fields are known or skipped.
+PHASE 2 (confirm): Once all fields are collected/skipped, ask "Is there anything else you'd like to add?" Set intent="collecting_info" and should_book=false. If the customer adds more info, acknowledge it briefly and ask again. Stay in Phase 2 until the customer says no / nothing more.
+PHASE 3 (appointment): ONLY after the customer declines to add more — propose the earliest available slot within opening hours and NOT in the ALREADY BOOKED list. Set should_book=true and intent="appointment_booked" only when the customer explicitly confirms the proposed slot.
 
 RULES:
 1. Always reply in English.
-2. If the customer describes any car problem or repair need, set repair_case.should_create_or_update = true.
-3. Collect vehicle make/model/year, mileage, plate, problem details, urgency, preferred appointment time.
-4. NEVER invent prices, diagnoses, guaranteed repair durations, or parts availability.
-5. Always mention that the garage will inspect the car first and send a quote before doing any work.
-6. If the customer gives a specific date and time that is within opening hours, set appointment.should_book = true and fill requested_start (ISO 8601, e.g. "2026-05-31T10:30:00").
-7. If the requested time is outside opening hours or unclear, ask for another time.
-8. If no car issue is mentioned (greeting, generic question), set repair_case.should_create_or_update = false.
-9. Set intent to "appointment_booked" only when should_book is true.
+2. ALWAYS ask for car-related information — even on the very first message (greeting, hello, etc). Never just say hi back. Always immediately ask what the issue with their car is.
+3. If the customer goes off-topic (weather, general chat, unrelated questions), briefly redirect: "I can only help with car repair bookings. What's the issue with your car?"
+4. If the customer describes any car problem or repair need, set repair_case.should_create_or_update = true.
+5. NEVER invent prices, diagnoses, guaranteed repair durations, or parts availability.
+6. Mention that the garage will inspect first and send a quote before any work — only on the first relevant message, never repeat it.
+7. If a proposed slot is in the ALREADY BOOKED list, do NOT say the garage is closed. Say something like "That slot is already taken — the next available time is X." Then propose the next free slot within opening hours.
+8. Do NOT set intent="appointment_booked" or should_book=true until the customer has confirmed a specific slot.
+9. For any vehicle fields the customer did not provide or skipped, always return null — never guess.
 
 URGENCY values: "low" | "medium" | "medium_high" | "high" | "critical"
 STATUS values: "collecting_info" | "appointment_booked"
@@ -285,6 +298,12 @@ Return ONLY the following JSON (no markdown fences, no extra text):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+
+def _format_booked_slots(slots: Optional[List[datetime]]) -> str:
+    if not slots:
+        return "None — all slots are available."
+    return "\n".join(f"  - {dt.strftime('%A %d %B %Y at %H:%M UTC')}" for dt in slots)
 
 
 def _format_opening_hours(garage: Optional["GarageSettings"]) -> str:

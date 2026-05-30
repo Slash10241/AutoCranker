@@ -27,7 +27,7 @@ from app.db.crud import (
     is_message_seen,
     update_repair_case,
 )
-from app.db.models import Vehicle
+from app.db.models import RepairCase, Vehicle
 from app.db.session import get_db
 from app.memory import InMemoryStore, get_store
 from app.schemas import BotReply, FrontendChatMessage, MessageOut
@@ -118,6 +118,15 @@ def frontend_chat(
     vehicle = db.query(Vehicle).filter(Vehicle.customer_id == customer.id).first()
     garage = get_garage_settings(db)
 
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    booked_slots = [
+        c.appointment_start
+        for c in db.query(RepairCase)
+        .filter(RepairCase.appointment_start.isnot(None), RepairCase.appointment_start > now)
+        .all()
+    ]
+
     result = services.intake_agent.run(
         message=payload.message,
         history=history,
@@ -125,6 +134,7 @@ def frontend_chat(
         active_case=active_case,
         vehicle=vehicle,
         garage=garage,
+        booked_slots=booked_slots,
     )
 
     logger.info(

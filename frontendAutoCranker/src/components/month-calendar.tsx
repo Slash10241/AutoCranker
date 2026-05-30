@@ -37,10 +37,10 @@ export function MonthCalendar({
       <div className="mt-1 grid grid-cols-7 gap-1">
         {grid.map((cell, i) => {
           const inMonth = cell.getMonth() === cursor.getMonth();
-          const iso = cell.toISOString().slice(0, 10);
+          const iso = localDateStr(cell);
           const isMarked = marked.has(iso);
           const isSelected = selected === iso;
-          const isToday = iso === new Date().toISOString().slice(0, 10);
+          const isToday = iso === localDateStr(new Date());
           const dayEvents = events[iso] ?? [];
           const col = i % 7;
           return (
@@ -104,6 +104,10 @@ export function MonthCalendar({
       </div>
     </div>
   );
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function addMonths(d: Date, n: number) {

@@ -158,4 +158,7 @@ export const api = {
 
   getQuotation: (caseId: number) =>
     apiFetch<BackendQuotation>(`/api/repair-cases/${caseId}/quotation`),
+
+  generateChatSummary: (caseId: number) =>
+    apiFetch<{ summary: string }>(`/api/repair-cases/${caseId}/chat-summary`, { method: "POST" }),
 };

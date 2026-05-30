@@ -41,17 +41,34 @@ function CaseDetailPage() {
 
   const v = state.vehicles.find((x) => x.id === c.vehicleId)!;
   const cu = state.customers.find((x) => x.id === c.customerId)!;
-  const chatSummary = seedChatSummaries[caseId] ?? "AutoCranker AI has not generated a WhatsApp intake summary for this case yet.";
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const chatSummary: string = c.chatSummary ?? seedChatSummaries[caseId] ?? "";
   const total = c.lineItems.reduce((s, li) => s + li.qty * li.unitCost, 0);
-  const inspectionReport: string = (c as any).inspectionReport ?? "";
+  const inspectionReport: string = c.inspectionReport ?? "";
   const [generating, setGenerating] = useState(false);
   const [pdfGenerated, setPdfGenerated] = useState(false);
+
+  const handleGenerateChatSummary = async () => {
+    if (!c._backendId) {
+      toast.error("This case is not synced with the backend");
+      return;
+    }
+    setSummaryLoading(true);
+    try {
+      const { summary } = await api.generateChatSummary(c._backendId);
+      updateCase((prev) => ({ ...prev, chatSummary: summary }));
+    } catch {
+      toast.error("Failed to generate summary");
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   const updateCase = (fn: (c: any) => any) =>
     update((s) => ({ ...s, cases: s.cases.map((x) => x.id === caseId ? fn(x) : x) }));
 
   const setInspectionReport = (text: string) =>
-    updateCase((c) => ({ ...c, inspectionReport: text }));
+    updateCase((prev) => ({ ...prev, inspectionReport: text }));
 
   const invalidatePdf = () => setPdfGenerated(false);
 
@@ -341,10 +358,26 @@ function CaseDetailPage() {
               <div className="font-mono text-xs text-muted-foreground">{v.plate} · {v.vin}</div>
             </div>
             <div className="col-span-2 border-t border-border pt-3">
-              <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                <Bot className="h-3 w-3" /> AI chat summary
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <Bot className="h-3 w-3" /> AI chat summary
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGenerateChatSummary}
+                  disabled={summaryLoading}
+                  className="h-7 text-xs"
+                >
+                  {summaryLoading
+                    ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Generating…</>
+                    : <><Sparkles className="mr-1 h-3 w-3" /> Generate summary</>
+                  }
+                </Button>
               </div>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-foreground/90">{chatSummary}</p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-foreground/90">
+                {chatSummary || <span className="text-muted-foreground italic">No summary yet — click "Generate summary" to create one.</span>}
+              </p>
             </div>
           </section>
 
