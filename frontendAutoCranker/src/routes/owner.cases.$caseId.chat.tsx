@@ -1,8 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
 import { seedChats } from "@/lib/mock-chats";
 import { ArrowLeft, Phone, Video, MoreVertical, Check, CheckCheck, Bot } from "lucide-react";
 import { formatTimeUTC, formatDayLabelUTC, utcDayKey } from "@/lib/format-date";
+import type { ChatMessage } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/owner/cases/$caseId/chat")({
   component: ChatPage,
@@ -13,7 +15,35 @@ function ChatPage() {
   const { state } = useStore();
   const c = state.cases.find((x) => x.id === caseId);
   const cu = c ? state.customers.find((x) => x.id === c.customerId) : null;
-  const messages = seedChats[caseId] ?? [];
+
+  // Start with mock seed data; replace with real messages once fetched.
+  const [messages, setMessages] = useState<ChatMessage[]>(seedChats[caseId] ?? []);
+  const [loading, setLoading] = useState(false);
+
+  const customerPhone = c?._customerPhone;
+
+  useEffect(() => {
+    if (!customerPhone) return;
+
+    const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8000";
+    setLoading(true);
+
+    fetch(`${BASE}/api/chat/${encodeURIComponent(customerPhone)}/messages`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Array<{ id: number; role: string; content: string; created_at: string }> | null) => {
+        if (!data || data.length === 0) return;
+        setMessages(
+          data.map((m) => ({
+            id: String(m.id),
+            from: m.role === "customer" ? "customer" : "ai",
+            text: m.content,
+            at: m.created_at,
+          })),
+        );
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [customerPhone]);
 
   if (!c || !cu) {
     return (
@@ -34,7 +64,6 @@ function ChatPage() {
     if (last && last.key === key) last.items.push(m);
     else groups.push({ key, sample: m.at, items: [m] });
   }
-
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -61,6 +90,9 @@ function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-3 opacity-90">
+            {loading && (
+              <span className="text-[10px] opacity-70">Loading…</span>
+            )}
             <Video className="h-5 w-5" />
             <Phone className="h-5 w-5" />
             <MoreVertical className="h-5 w-5" />
@@ -133,4 +165,3 @@ function ChatPage() {
     </div>
   );
 }
-

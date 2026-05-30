@@ -5,6 +5,15 @@ import {
   type Case, type Customer, type Mechanic, type Vehicle,
   type Appointment, type Part, type Notification, type CaseStatus,
 } from "./mock-data";
+import { api } from "./api";
+import {
+  adaptCases,
+  adaptCustomers,
+  adaptInventory,
+  extractVehicles,
+  extractAppointments,
+  frontendToBackendStatus,
+} from "./backend-adapter";
 
 const KEY = "garageos.v1";
 
@@ -33,6 +42,8 @@ const initial: State = {
 type Ctx = {
   state: State;
   update: (fn: (s: State) => State) => void;
+  /** Persists a status change to the backend. No-op for mock-only cases. */
+  patchBackendCase: (caseId: string, newStatus: CaseStatus) => Promise<void>;
 };
 
 const StoreCtx = createContext<Ctx | null>(null);
@@ -41,6 +52,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(initial);
   const [hydrated, setHydrated] = useState(false);
 
+  // 1. Restore from localStorage on first mount.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
@@ -49,13 +61,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
+  // 2. Persist to localStorage whenever state changes (after initial hydration).
   useEffect(() => {
     if (hydrated) localStorage.setItem(KEY, JSON.stringify(state));
   }, [state, hydrated]);
 
+  // 3. Fetch live data from the backend and replace mock seeds.
+  //    Falls back silently to mock data if the backend is offline.
+  useEffect(() => {
+    if (!hydrated) return;
+
+    Promise.all([
+      api.listRepairCases(),
+      api.listCustomers(),
+      api.listInventory(),
+    ])
+      .then(([cases, customers, inventory]) => {
+        setState((prev) => ({
+          ...prev,
+          cases: adaptCases(cases),
+          customers: adaptCustomers(customers),
+          vehicles: extractVehicles(cases),
+          appointments: extractAppointments(cases),
+          inventory: adaptInventory(inventory),
+        }));
+      })
+      .catch(() => {
+        // Backend offline — keep mock data, no error shown to user.
+      });
+  }, [hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const update = (fn: (s: State) => State) => setState((s) => fn(s));
 
-  return <StoreCtx.Provider value={{ state, update }}>{children}</StoreCtx.Provider>;
+  const patchBackendCase = async (caseId: string, newStatus: CaseStatus): Promise<void> => {
+    const c = state.cases.find((x) => x.id === caseId);
+    if (!c?._backendId) return;
+    await api.updateRepairCase(c._backendId, { status: frontendToBackendStatus(newStatus) });
+  };
+
+  return (
+    <StoreCtx.Provider value={{ state, update, patchBackendCase }}>
+      {children}
+    </StoreCtx.Provider>
+  );
 }
 
 export function useStore() {

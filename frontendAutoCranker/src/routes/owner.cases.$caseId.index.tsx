@@ -23,7 +23,7 @@ export const Route = createFileRoute("/owner/cases/$caseId/")({
 
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
-  const { state, update } = useStore();
+  const { state, update, patchBackendCase } = useStore();
   const navigate = useNavigate();
   const c = state.cases.find((x) => x.id === caseId);
 
@@ -105,6 +105,9 @@ function CaseDetailPage() {
       ...c, status: s,
       timeline: [...c.timeline, { at: new Date().toISOString(), label: `Moved to ${s}` }],
     }));
+    patchBackendCase(caseId, s).catch(() => {
+      toast.error("Status saved locally but failed to sync with server");
+    });
     toast.success(`Moved to ${s}`);
   };
 

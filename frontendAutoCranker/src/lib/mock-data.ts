@@ -74,6 +74,10 @@ export type Case = {
   notes: string;
   internalNotes: string;
   timeline: TimelineEntry[];
+  /** Backend integer ID — present only for cases loaded from the API. */
+  _backendId?: number;
+  /** Backend phone_number / session_id — used to load WhatsApp chat history. */
+  _customerPhone?: string;
 };
 
 const today = new Date();

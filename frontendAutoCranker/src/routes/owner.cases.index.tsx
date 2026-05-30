@@ -13,7 +13,7 @@ export const Route = createFileRoute("/owner/cases/")({
 });
 
 function CasesBoard() {
-  const { state, update } = useStore();
+  const { state, update, patchBackendCase } = useStore();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -28,6 +28,9 @@ function CasesBoard() {
         timeline: [...c.timeline, { at: new Date().toISOString(), label: `Moved to ${newStatus}` }],
       } : c),
     }));
+    patchBackendCase(caseId, newStatus).catch(() => {
+      toast.error("Status saved locally but failed to sync with server");
+    });
     toast.success(`Moved to ${newStatus}`);
   };
 
