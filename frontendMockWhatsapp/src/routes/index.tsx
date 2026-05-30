@@ -6,7 +6,7 @@ import logoUrl from "@/assets/logo.png";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Coppi Garage — WhatsApp Demo" },
+      { title: "Coppi Garage — WhatsApp" },
       { name: "description", content: "Mock WhatsApp chat with Coppi Garage." },
     ],
   }),
@@ -14,9 +14,8 @@ export const Route = createFileRoute("/")({
 });
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
-const DEMO_SESSION_ID = "demo_leo_ekl7";
 const GREETING = "👋 Hi! Welcome to Coppi Garage. How can we help you with your car today?";
-const STORAGE_KEY = "wa_demo_profiles_v2";
+const STORAGE_KEY = "wa_demo_profiles_v1";
 
 const PRESETS = [
   "My car makes a noise when braking",
@@ -236,6 +235,9 @@ function Index() {
             />
             <div className="flex-1 min-w-0">
               <div className="font-medium text-[15px] leading-tight">Coppi Garage</div>
+              <div className="text-[12px] opacity-90 leading-tight truncate">
+                Chatting as {active?.name ?? "—"} · Online
+              </div>
             </div>
             <MoreVertical size={20} className="opacity-90" />
           </div>
