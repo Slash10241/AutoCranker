@@ -183,14 +183,15 @@ export function extractAppointments(cases: BackendRepairCase[]): Appointment[] {
     .map(
       (bc): Appointment => {
         const d = new Date(bc.appointment_start);
-        const hh = d.getUTCHours().toString().padStart(2, "0");
-        const mm = d.getUTCMinutes().toString().padStart(2, "0");
+        const hh = d.getHours().toString().padStart(2, "0");
+        const mm = d.getMinutes().toString().padStart(2, "0");
+        const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         return {
           id: `api-appt-${bc.id}`,
           customerId: `api-customer-${bc.customer_id}`,
           vehicleId: bc.vehicle_id ? `api-vehicle-${bc.vehicle_id}` : "api-vehicle-placeholder",
           service: bc.title ?? "Appointment",
-          date: bc.appointment_start.slice(0, 10),
+          date: localDate,
           time: `${hh}:${mm}`,
           status: "confirmed",
         };

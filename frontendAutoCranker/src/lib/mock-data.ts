@@ -78,6 +78,10 @@ export type Case = {
   _backendId?: number;
   /** Backend phone_number / session_id — used to load WhatsApp chat history. */
   _customerPhone?: string;
+  /** Technician's raw inspection notes (local only, not persisted to backend). */
+  inspectionReport?: string;
+  /** AI-generated chat summary (local only). */
+  chatSummary?: string;
 };
 
 const today = new Date();

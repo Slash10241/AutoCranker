@@ -24,7 +24,7 @@ def init_services(settings: Optional[Settings] = None) -> AppServices:
     global _services
     settings = settings or get_settings()
     llm_client = GeminiClient(settings)
-    intake_agent = IntakeAgent(llm_client=llm_client, app_name=settings.app_name)
+    intake_agent = IntakeAgent(llm_client=llm_client, app_name=settings.app_name, system_prompt=settings.intake_system_prompt)
     quotation_agent = QuotationAgent(llm_client=llm_client)
     _services = AppServices(
         llm_client=llm_client,

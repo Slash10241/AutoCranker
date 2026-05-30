@@ -20,7 +20,10 @@ const SERVICES = ["Oil change", "Brake job", "Diagnostic", "Tire rotation", "AC 
 
 function OwnerCalendar() {
   const { state, update } = useStore();
-  const [selected, setSelected] = useState<string>(() => new Date().toISOString().slice(0,10));
+  const [selected, setSelected] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
   const [open, setOpen] = useState(false);
   const marked = state.appointments.map((a) => a.date);
   const dayAppts = state.appointments.filter((a) => a.date === selected);
