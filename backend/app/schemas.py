@@ -154,7 +154,6 @@ class RepairCaseListItemOut(BaseModel):
     appointment_end: Optional[datetime]
     appointment_type: Optional[str]
     blocker: Optional[str]
-    # Phase 3 enrichment
     inspection_summary: Optional[str] = None
     quotation_status: Optional[str] = None
     quotation_total: Optional[float] = None
@@ -218,14 +217,16 @@ class RepairCaseUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Inspection schemas
+# Inspection schemas (Phase 3)
 # ---------------------------------------------------------------------------
 
 
 class InspectionSubmit(BaseModel):
+    """Body for POST /repair-cases/{id}/inspection."""
+
     technician_name: Optional[str] = None
     raw_notes: str
-    media_urls: List[str] = []
+    media_urls: Optional[List[str]] = None
 
 
 class InspectionOut(BaseModel):
@@ -245,7 +246,7 @@ class InspectionOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Quotation schemas
+# Quotation schemas (Phase 3)
 # ---------------------------------------------------------------------------
 
 
@@ -259,6 +260,7 @@ class QuotationItemOut(BaseModel):
     total: float
     source: str
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -275,7 +277,7 @@ class QuotationOut(BaseModel):
     tax: float
     total: float
     currency: str
-    items: List[QuotationItemOut] = []
+    items: List["QuotationItemOut"] = []
     created_at: datetime
     updated_at: datetime
 
@@ -283,6 +285,7 @@ class QuotationOut(BaseModel):
 
 
 class QuotationUpdate(BaseModel):
+    status: Optional[str] = None
     internal_summary: Optional[str] = None
     customer_explanation: Optional[str] = None
     urgency: Optional[str] = None
