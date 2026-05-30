@@ -69,6 +69,15 @@ class InMemoryStore:
             buf = self._history.get(user_id)
             return list(buf) if buf else []
 
+    def clear_dedup(self) -> None:
+        with self._lock:
+            self._seen_ids.clear()
+            self._seen_ids_set.clear()
+
+    def clear_session(self, user_id: str) -> None:
+        with self._lock:
+            self._history.pop(user_id, None)
+
 
 _store_singleton: Optional[InMemoryStore] = None
 

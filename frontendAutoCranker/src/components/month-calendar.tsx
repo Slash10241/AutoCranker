@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  defaultCalendarMonth,
+  formatMonthYear,
+  formatWeekdayShortDate,
+  localDateStr,
+} from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 
 export type CalendarEvent = { id: string; time?: string; label: string };
@@ -15,11 +21,9 @@ export function MonthCalendar({
   selected?: string;
   onSelectDate?: (d: string) => void;
 }) {
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date(); d.setDate(1); return d;
-  });
+  const [cursor, setCursor] = useState(defaultCalendarMonth);
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
-  const monthLabel = cursor.toLocaleString(undefined, { month: "long", year: "numeric" });
+  const monthLabel = formatMonthYear(cursor);
   const marked = new Set(markedDates);
 
   return (
@@ -83,7 +87,7 @@ export function MonthCalendar({
                   )}
                 >
                   <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    {cell.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                    {formatWeekdayShortDate(cell)}
                   </div>
                   <div className="space-y-1">
                     {dayEvents.slice(0, 5).map((e) => (
@@ -104,10 +108,6 @@ export function MonthCalendar({
       </div>
     </div>
   );
-}
-
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function addMonths(d: Date, n: number) {

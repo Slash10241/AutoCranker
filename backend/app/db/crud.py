@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,8 @@ from app.db.models import (
     RepairCaseStatus,
     Vehicle,
 )
+
+logger = logging.getLogger(__name__)
 
 # Statuses that mean a case is still open / in progress.
 _OPEN_STATUSES = {
@@ -60,9 +64,22 @@ def list_customers(db: Session, skip: int = 0, limit: int = 100) -> List[Custome
 def get_or_create_customer(
     db: Session, phone_number: str, name: Optional[str] = None
 ) -> Customer:
+    from app.config import get_settings
+
+    settings = get_settings()
+    is_demo = phone_number == settings.demo_customer_session_id or phone_number in (
+        "demo_customer_1",
+        "demo_customer",
+    )
+    if is_demo:
+        name = "Leo"
+
     customer = get_customer_by_phone(db, phone_number)
     if customer:
-        if name and not customer.name:
+        if is_demo:
+            customer.name = "Leo"
+            db.flush()
+        elif name and not customer.name:
             customer.name = name
             db.flush()
         return customer
@@ -70,6 +87,61 @@ def get_or_create_customer(
     db.add(customer)
     db.flush()
     return customer
+
+
+def reset_demo_session(
+    db: Session,
+    session_id: str,
+    uploads_dir: Union[str, Path],
+) -> bool:
+    """Delete demo customer and all related data (cases, messages, vehicles).
+
+    Removes quote PDFs from disk before cascade delete. Returns True whether or
+    not a customer row existed.
+    """
+    customer = get_customer_by_phone(db, session_id)
+    if not customer:
+        return True
+
+    quotes_dir = Path(uploads_dir) / "quotes"
+    cases = db.query(RepairCase).filter(RepairCase.customer_id == customer.id).all()
+    for case in cases:
+        for quotation in case.quotations:
+            pdf_path = quotes_dir / f"quote-{quotation.id}.pdf"
+            if pdf_path.is_file():
+                try:
+                    pdf_path.unlink()
+                except OSError as exc:
+                    logger.warning("Could not delete %s: %s", pdf_path, exc)
+
+    # Explicit deletes in FK-safe order (children before parents).
+    case_ids = [c.id for c in db.query(RepairCase.id).filter(RepairCase.customer_id == customer.id)]
+    if case_ids:
+        quotation_ids = [
+            q.id for q in db.query(Quotation.id).filter(Quotation.repair_case_id.in_(case_ids))
+        ]
+        if quotation_ids:
+            db.query(QuotationItem).filter(QuotationItem.quotation_id.in_(quotation_ids)).delete(
+                synchronize_session=False
+            )
+        db.query(Quotation).filter(Quotation.repair_case_id.in_(case_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(Inspection).filter(Inspection.repair_case_id.in_(case_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(Message).filter(Message.customer_id == customer.id).delete(
+        synchronize_session=False
+    )
+    db.query(RepairCase).filter(RepairCase.customer_id == customer.id).delete(
+        synchronize_session=False
+    )
+    db.query(Vehicle).filter(Vehicle.customer_id == customer.id).delete(
+        synchronize_session=False
+    )
+    db.delete(customer)
+    db.flush()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -84,12 +156,18 @@ def create_message(
     content: str,
     channel: str = "whatsapp",
     external_message_id: Optional[str] = None,
+    message_type: str = "text",
+    attachment_url: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
 ) -> Message:
     msg = Message(
         customer_id=customer_id,
         role=role,
         content=content,
         channel=channel,
+        message_type=message_type,
+        attachment_url=attachment_url,
+        attachment_filename=attachment_filename,
         external_message_id=external_message_id,
     )
     db.add(msg)

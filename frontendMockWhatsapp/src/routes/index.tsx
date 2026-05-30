@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Send, Mic, MoreVertical, RotateCcw, Plus, Trash2, UserCircle2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Send, Mic, MoreVertical, RotateCcw, Plus, Trash2, UserCircle2, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import logoUrl from "@/assets/logo.png";
 
 export const Route = createFileRoute("/")({
@@ -13,9 +13,11 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8000";
+/** Must match backend `demo_customer_session_id` (default: demo_leo_ekl7). */
+const DEMO_SESSION_ID = "demo_leo_ekl7";
 const GREETING = "👋 Hi! Welcome to Coppi Garage. How can we help you with your car today?";
-const STORAGE_KEY = "wa_demo_profiles_v1";
+const STORAGE_KEY = "wa_demo_profiles_v2";
 
 const PRESETS = [
   "My car makes a noise when braking",
@@ -27,7 +29,36 @@ const PRESETS = [
 
 type Msg =
   | { id: string; role: "user" | "ai"; text: string; time: string }
+  | { id: string; role: "ai"; kind: "document"; filename: string; url: string; time: string }
   | { id: string; role: "system"; text: string; time: string };
+
+type ApiMessage = {
+  role: string;
+  content: string;
+  created_at: string;
+  message_type?: string;
+  attachment_url?: string | null;
+  attachment_filename?: string | null;
+};
+
+function mapApiMessage(m: ApiMessage): Msg {
+  const time = new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const role = m.role === "customer" ? "user" : "ai";
+  if (m.message_type === "document" && m.attachment_url) {
+    const url = m.attachment_url.startsWith("http")
+      ? m.attachment_url
+      : `${API_BASE}${m.attachment_url}`;
+    return {
+      id: makeId(),
+      role: "ai",
+      kind: "document",
+      filename: m.attachment_filename ?? m.content ?? "quotation.pdf",
+      url,
+      time,
+    };
+  }
+  return { id: makeId(), role, text: m.content, time };
+}
 
 type Profile = {
   id: string;
@@ -50,8 +81,15 @@ function freshGreeting(): Msg {
 
 function defaultProfiles(): Profile[] {
   return [
-    { id: "p1", name: "Demo Customer", sessionId: "demo_customer_1", messages: [freshGreeting()] },
+    { id: "leo", name: "Leo", sessionId: DEMO_SESSION_ID, messages: [freshGreeting()] },
   ];
+}
+
+function normalizeProfile(p: Profile): Profile {
+  if (p.sessionId === "demo_customer_1" || p.sessionId === "demo_customer") {
+    return { ...p, sessionId: DEMO_SESSION_ID, name: p.name === "Demo Customer" ? "Leo" : p.name };
+  }
+  return p;
 }
 
 function loadProfiles(): { profiles: Profile[]; activeId: string } {
@@ -63,7 +101,22 @@ function loadProfiles(): { profiles: Profile[]; activeId: string } {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as { profiles: Profile[]; activeId: string };
-      if (parsed.profiles?.length) return parsed;
+      if (parsed.profiles?.length) {
+        return {
+          profiles: parsed.profiles.map(normalizeProfile),
+          activeId: parsed.activeId,
+        };
+      }
+    }
+    const legacy = localStorage.getItem("wa_demo_profiles_v1");
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as { profiles: Profile[]; activeId: string };
+      if (parsed.profiles?.length) {
+        return {
+          profiles: parsed.profiles.map(normalizeProfile),
+          activeId: parsed.activeId,
+        };
+      }
     }
   } catch {
     // ignore
@@ -80,6 +133,8 @@ function Index() {
   const [newName, setNewName] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Prevents the poll from overwriting optimistic messages while a send is in flight.
+  const isSendingRef = useRef(false);
 
   const active = profiles.find((p) => p.id === activeId) ?? profiles[0];
 
@@ -92,30 +147,33 @@ function Index() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [active?.messages, typing, activeId]);
 
-  // Hydrate chat history from backend on mount and profile switch
+  // Hydrate chat history from backend on mount, profile switch, and poll for outbound messages
   useEffect(() => {
     if (!active) return;
     const sessionId = active.sessionId;
-    fetch(`${API_BASE}/api/chat/${sessionId}/messages`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((msgs: { role: string; content: string; created_at: string }[]) => {
-        if (!msgs.length) return;
-        const hydrated: Msg[] = msgs.map((m) => ({
-          id: makeId(),
-          role: m.role === "customer" ? "user" : "ai",
-          text: m.content,
-          time: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        }));
-        setState((s) => ({
-          ...s,
-          profiles: s.profiles.map((p) =>
-            p.sessionId === sessionId ? { ...p, messages: hydrated } : p,
-          ),
-        }));
-      })
-      .catch(() => {
-        // backend unreachable or no history yet — keep local state
-      });
+
+    const load = () =>
+      fetch(`${API_BASE}/api/chat/${sessionId}/messages`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then((msgs: ApiMessage[]) => {
+          // Don't clobber optimistic messages while a send is still in flight.
+          if (isSendingRef.current) return;
+          // Always keep the greeting as the first bubble; backend never stores it.
+          const hydrated: Msg[] = [freshGreeting(), ...msgs.map(mapApiMessage)];
+          setState((s) => ({
+            ...s,
+            profiles: s.profiles.map((p) =>
+              p.sessionId === sessionId ? { ...p, messages: hydrated } : p,
+            ),
+          }));
+        })
+        .catch(() => {
+          // backend unreachable or no history yet — keep local state
+        });
+
+    load();
+    const pollId = setInterval(load, 5000);
+    return () => clearInterval(pollId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
@@ -129,6 +187,7 @@ function Index() {
   async function sendMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed || !active) return;
+    isSendingRef.current = true;
     setInput("");
     updateActive((p) => ({
       ...p,
@@ -175,11 +234,39 @@ function Index() {
             : p,
         ),
       }));
+    } finally {
+      isSendingRef.current = false;
     }
   }
 
-  function handleReset() {
+  async function handleReset() {
     if (!active) return;
+    const sessionId = active.sessionId;
+
+    if (sessionId.startsWith("demo_")) {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/chat/${encodeURIComponent(sessionId)}/reset`,
+          { method: "POST" },
+        );
+        if (!res.ok) throw new Error(String(res.status));
+      } catch {
+        updateActive((p) => ({
+          ...p,
+          messages: [
+            ...p.messages,
+            {
+              id: makeId(),
+              role: "system",
+              text: "Reset failed — is the backend running?",
+              time: nowTime(),
+            },
+          ],
+        }));
+        return;
+      }
+    }
+
     updateActive((p) => ({ ...p, messages: [freshGreeting()] }));
     setInput("");
     setTyping(false);
@@ -245,7 +332,7 @@ function Index() {
                   <UserCircle2 size={22} className={isActive ? "text-[#25D366]" : "text-gray-400"} />
                   <div className="flex-1 min-w-0">
                     <div className="text-[13.5px] truncate">{p.name}</div>
-                    <div className="text-[11px] text-gray-500 truncate">{p.sessionId}</div>
+                    <div className="text-[11px] text-gray-500 truncate">WhatsApp</div>
                   </div>
                   {profiles.length > 1 && (
                     <button
@@ -330,9 +417,6 @@ function Index() {
             />
             <div className="flex-1 min-w-0">
               <div className="font-medium text-[15px] leading-tight">Coppi Garage</div>
-              <div className="text-[12px] opacity-90 leading-tight truncate">
-                Chatting as {active?.name ?? "—"} · Online
-              </div>
             </div>
             <MoreVertical size={20} className="opacity-90" />
           </div>
@@ -355,6 +439,26 @@ function Index() {
                   </div>
                 );
               }
+              if ("kind" in m && m.kind === "document") {
+                return (
+                  <a
+                    key={m.id}
+                    href={m.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="self-start max-w-[85%] flex items-center gap-2 rounded-lg rounded-tl-sm px-3 py-2 shadow-sm"
+                    style={{ backgroundColor: "#DCF8C6", color: "#111" }}
+                  >
+                    <FileText size={28} className="shrink-0 text-[#128C7E]" />
+                    <div className="min-w-0">
+                      <div className="text-[14px] font-medium truncate">{m.filename}</div>
+                      <div className="text-[11px] text-gray-600">PDF · Tap to open</div>
+                    </div>
+                    <span className="self-end text-[11px] text-gray-500 shrink-0">{m.time}</span>
+                  </a>
+                );
+              }
+              if (!("text" in m)) return null;
               const isUser = m.role === "user";
               return (
                 <div
@@ -432,7 +536,7 @@ function Index() {
           onClick={handleReset}
           className="inline-flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white transition-colors"
         >
-          <RotateCcw size={14} /> Reset conversation
+          <RotateCcw size={14} /> Reset demo
         </button>
       </div>
 

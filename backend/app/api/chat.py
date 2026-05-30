@@ -2,13 +2,15 @@
 
 POST /api/chat          — send a message, run intake agent, return BotReply
 GET  /api/chat/{session_id}/messages — load conversation history for a session
+POST /api/chat/{session_id}/reset — wipe demo session data (mock WhatsApp reset)
 """
 
 from __future__ import annotations
 
 import hmac
 import logging
-from typing import List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
@@ -25,6 +27,7 @@ from app.db.crud import (
     get_or_update_vehicle,
     get_recent_history_for_llm,
     is_message_seen,
+    reset_demo_session,
     update_repair_case,
 )
 from app.db.models import RepairCase, Vehicle
@@ -38,6 +41,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
 
 _CHANNEL = "web"
+
+
+def _is_demo_reset_session(session_id: str, settings: Settings) -> bool:
+    if session_id == settings.demo_customer_session_id:
+        return True
+    return session_id.startswith("demo_")
 
 
 def _verify_api_key(provided: Optional[str], expected: str) -> None:
@@ -64,6 +73,29 @@ def get_chat_messages(
     if not customer:
         return []
     return get_messages_for_customer(db, customer.id, limit=limit)
+
+
+@router.post("/chat/{session_id}/reset")
+def reset_chat_session(
+    session_id: str,
+    x_api_key: Optional[str] = Header(default=None, alias="X-Api-Key"),
+    settings: Settings = Depends(get_settings),
+    store: InMemoryStore = Depends(get_store),
+    db: Session = Depends(get_db),
+) -> Dict[str, bool]:
+    _verify_api_key(x_api_key, settings.frontend_api_key)
+
+    if not _is_demo_reset_session(session_id, settings):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Reset is only allowed for demo sessions",
+        )
+
+    reset_demo_session(db, session_id, Path(settings.uploads_dir))
+    store.clear_dedup()
+    store.clear_session(session_id)
+    logger.info("Demo session reset: session_id=%s", session_id)
+    return {"ok": True}
 
 
 @router.post("/chat", response_model=BotReply)
@@ -104,6 +136,9 @@ def frontend_chat(
 
     customer = get_or_create_customer(db, payload.session_id, payload.name)
 
+    # Load prior turns before persisting the new message (empty after a demo reset).
+    history = get_recent_history_for_llm(db, customer.id, limit=10)
+
     create_message(
         db,
         customer_id=customer.id,
@@ -112,8 +147,6 @@ def frontend_chat(
         channel=_CHANNEL,
         external_message_id=payload.message_id,
     )
-
-    history = get_recent_history_for_llm(db, customer.id, limit=10)
     active_case = get_active_repair_case_for_customer(db, customer.id)
     vehicle = db.query(Vehicle).filter(Vehicle.customer_id == customer.id).first()
     garage = get_garage_settings(db)

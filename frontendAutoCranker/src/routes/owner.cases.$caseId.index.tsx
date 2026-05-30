@@ -9,10 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, Send, Trash2, Plus, MessageCircle, Bot, Camera, ClipboardCheck, Wrench, Sparkles, Loader2, FileText } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import carPhoto1 from "@/assets/car-photo-1.png";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { buildQuotationPdf, quotationPdfToBase64 } from "@/lib/build-quotation-pdf";
 import { formatDateTimeUTC } from "@/lib/format-date";
 import { seedChatSummaries } from "@/lib/mock-chats";
 import { api } from "@/lib/api";
@@ -46,6 +46,7 @@ function CaseDetailPage() {
   const total = c.lineItems.reduce((s, li) => s + li.qty * li.unitCost, 0);
   const inspectionReport: string = c.inspectionReport ?? "";
   const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
   const [pdfGenerated, setPdfGenerated] = useState(false);
 
   const handleGenerateChatSummary = async () => {
@@ -140,178 +141,58 @@ function CaseDetailPage() {
 
   const generatePdf = () => {
     if (c.lineItems.length === 0) return;
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 14;
-    const amber: [number, number, number] = [245, 158, 11];
-    const dark: [number, number, number] = [30, 30, 30];
-    const muted: [number, number, number] = [120, 120, 120];
-
-    // ===== Header band =====
-    doc.setFillColor(...amber);
-    doc.rect(0, 0, pageWidth, 26, "F");
-    doc.setTextColor(20, 20, 20);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text(GARAGE_INFO.name, margin, 14);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(GARAGE_INFO.tagline, margin, 20);
-
-    // Right-aligned doc meta inside header
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("QUOTATION", pageWidth - margin, 14, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(`#${c.id}`, pageWidth - margin, 20, { align: "right" });
-
-    // ===== Garage contact block =====
-    doc.setTextColor(...muted);
-    doc.setFontSize(8.5);
-    let y = 33;
-    doc.text(GARAGE_INFO.address, margin, y);
-    doc.text(`${GARAGE_INFO.phone}  ·  ${GARAGE_INFO.email}  ·  ${GARAGE_INFO.website}`, margin, y + 4);
-
-    // Divider
-    y += 10;
-    doc.setDrawColor(220, 220, 220);
-    doc.line(margin, y, pageWidth - margin, y);
-
-    // ===== Bill-to / Vehicle two-column block =====
-    y += 7;
-    const colW = (pageWidth - margin * 2) / 2;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...muted);
-    doc.text("BILL TO", margin, y);
-    doc.text("VEHICLE", margin + colW, y);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...dark);
-    doc.text(cu.name, margin, y + 6);
-    doc.text(cu.phone, margin, y + 11);
-    doc.text(cu.email, margin, y + 16);
-
-    doc.text(`${v.year} ${v.make} ${v.model}`, margin + colW, y + 6);
-    doc.text(`Plate: ${v.plate}`, margin + colW, y + 11);
-    doc.text(`VIN: ${v.vin}`, margin + colW, y + 16);
-
-    // ===== Issue / Service meta =====
-    y += 24;
-    doc.setDrawColor(220, 220, 220);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 6;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...muted);
-    doc.text("ISSUE DATE", margin, y);
-    doc.text("VALID UNTIL", margin + 50, y);
-    doc.text("SERVICE", margin + 100, y);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...dark);
-    const issue = new Date();
-    const valid = new Date(); valid.setDate(valid.getDate() + 14);
-    const fmt = (d: Date) => d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-    doc.text(fmt(issue), margin, y + 6);
-    doc.text(fmt(valid), margin + 50, y + 6);
-    doc.text(c.service, margin + 100, y + 6, { maxWidth: pageWidth - margin - (margin + 100) });
-
-    // ===== Line items table =====
-    const partsSubtotal = c.lineItems.filter((li) => li.type === "part").reduce((s, li) => s + li.qty * li.unitCost, 0);
-    const laborSubtotal = c.lineItems.filter((li) => li.type === "labor").reduce((s, li) => s + li.qty * li.unitCost, 0);
-    const taxRate = 0.0875;
-    const tax = total * taxRate;
-    const grand = total + tax;
-
-    autoTable(doc, {
-      startY: y + 16,
-      head: [["#", "Description", "Type", "Qty", "Unit", "Amount"]],
-      body: c.lineItems.map((li, i) => [
-        String(i + 1),
-        li.name,
-        li.type === "labor" ? "Labor" : "Part",
-        li.qty.toString(),
-        `$${li.unitCost.toFixed(2)}`,
-        `$${(li.qty * li.unitCost).toFixed(2)}`,
-      ]),
-      styles: { fontSize: 9.5, cellPadding: 3, textColor: dark },
-      headStyles: { fillColor: dark, textColor: 255, fontStyle: "bold", fontSize: 9 },
-      alternateRowStyles: { fillColor: [250, 250, 250] },
-      columnStyles: {
-        0: { halign: "center", cellWidth: 10 },
-        2: { cellWidth: 18 },
-        3: { halign: "right", cellWidth: 16 },
-        4: { halign: "right", cellWidth: 24 },
-        5: { halign: "right", cellWidth: 28 },
-      },
-      margin: { left: margin, right: margin },
-    });
-
-    let endY = (doc as any).lastAutoTable.finalY + 8;
-
-    // ===== Totals box (right aligned) =====
-    const totalsX = pageWidth - margin - 70;
-    const rowH = 6;
-    const drawRow = (label: string, value: string, bold = false) => {
-      doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.setFontSize(bold ? 11 : 9.5);
-      doc.text(label, totalsX, endY);
-      doc.text(value, pageWidth - margin, endY, { align: "right" });
-      endY += rowH;
-    };
-    doc.setTextColor(...dark);
-    drawRow("Parts subtotal", `$${partsSubtotal.toFixed(2)}`);
-    drawRow("Labor subtotal", `$${laborSubtotal.toFixed(2)}`);
-    drawRow("Subtotal", `$${total.toFixed(2)}`);
-    drawRow(`Tax (${(taxRate * 100).toFixed(2)}%)`, `$${tax.toFixed(2)}`);
-    endY += 1;
-    doc.setDrawColor(...amber);
-    doc.setLineWidth(0.5);
-    doc.line(totalsX, endY - 2, pageWidth - margin, endY - 2);
-    endY += 3;
-    drawRow("TOTAL DUE", `$${grand.toFixed(2)}`, true);
-
-    // ===== Notes / Terms =====
-    endY += 8;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...muted);
-    doc.text("TERMS & NOTES", margin, endY);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(...dark);
-    const terms = [
-      "· Quotation valid for 14 days from issue date.",
-      "· Parts pricing subject to change based on supplier availability.",
-      "· Additional repairs discovered during service will be quoted separately for approval.",
-      "· Approved work authorizes Coppi Garage to perform the listed services.",
-    ];
-    terms.forEach((t, i) => doc.text(t, margin, endY + 6 + i * 4.5));
-
-    // ===== Footer =====
-    const footY = doc.internal.pageSize.getHeight() - 10;
-    doc.setDrawColor(220, 220, 220);
-    doc.line(margin, footY - 4, pageWidth - margin, footY - 4);
-    doc.setFontSize(8);
-    doc.setTextColor(...muted);
-    doc.text(`${GARAGE_INFO.name} · ${GARAGE_INFO.website}`, margin, footY);
-    doc.text("Thank you for your business.", pageWidth - margin, footY, { align: "right" });
-
+    const doc = buildQuotationPdf(c, cu, v, c.lineItems);
     doc.save(`${GARAGE_INFO.name.replace(/\s+/g, "-")}-quotation-${c.id}.pdf`);
     setPdfGenerated(true);
-    toast.success("Quotation PDF generated");
   };
 
-  const sendEstimate = () => {
-    updateCase((c) => ({
-      ...c, status: "Awaiting Customer Approval", pipelineStep: 2,
-      timeline: [...c.timeline, { at: new Date().toISOString(), label: "Estimate sent to customer" }],
-    }));
-    toast.success("Estimate sent");
-    navigate({ to: "/owner/cases" });
+  const sendEstimate = async () => {
+    if (c.lineItems.length === 0) {
+      toast.error("Add line items before sending an estimate");
+      return;
+    }
+    if (!c._backendId) {
+      toast.error("This case is not synced with the backend");
+      return;
+    }
+
+    setSending(true);
+    try {
+      const doc = buildQuotationPdf(c, cu, v, c.lineItems);
+      const pdfBase64 = quotationPdfToBase64(doc);
+      let summaryText: string | undefined;
+      try {
+        const quotation = await api.getQuotation(c._backendId);
+        summaryText = quotation.customer_explanation ?? undefined;
+      } catch {
+        // no persisted quotation yet — send intro only
+      }
+
+      await api.sendQuotationToCustomer(c._backendId, {
+        pdf_base64: pdfBase64,
+        filename: `quotation-${c.id}.pdf`,
+        summary_text: summaryText,
+      });
+
+      updateCase((prev) => ({
+        ...prev,
+        status: "Awaiting Customer Approval",
+        pipelineStep: 2,
+        timeline: [
+          ...prev.timeline,
+          { at: new Date().toISOString(), label: "Estimate sent to customer" },
+        ],
+      }));
+      patchBackendCase(caseId, "Awaiting Customer Approval").catch(() => {
+        toast.error("Sent to WhatsApp but failed to sync case status");
+      });
+      navigate({ to: "/owner/cases" });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to send estimate";
+      toast.error(message);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -529,15 +410,19 @@ function CaseDetailPage() {
               </Button>
               <Button
                 onClick={sendEstimate}
-                disabled={!pdfGenerated}
+                disabled={c.lineItems.length === 0 || sending}
                 className="bg-amber text-[color:var(--amber-foreground)] hover:bg-amber/90"
               >
-                <Send className="mr-2 h-4 w-4" /> Send estimate to customer
+                {sending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…</>
+                ) : (
+                  <><Send className="mr-2 h-4 w-4" /> Send estimate to customer</>
+                )}
               </Button>
             </div>
             {!pdfGenerated && c.lineItems.length > 0 && (
               <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Generate the PDF quotation to enable sending
+                Optional: download a PDF preview before sending to WhatsApp
               </p>
             )}
           </section>
@@ -545,20 +430,6 @@ function CaseDetailPage() {
         </div>
 
         <div className="space-y-6">
-          <section className="space-y-3 rounded-lg border border-border bg-surface/40 p-4">
-            <div>
-              <Label>Assigned technician</Label>
-              <Select value={c.mechanicId} onValueChange={(v) => updateCase((c) => ({ ...c, mechanicId: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>{state.mechanics.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Internal notes</Label>
-              <Textarea value={c.internalNotes} onChange={(e) => updateCase((c) => ({ ...c, internalNotes: e.target.value }))} className="mt-1" />
-            </div>
-          </section>
-
           <section className="rounded-lg border border-border bg-surface/40 p-4">
             <h4 className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Timeline</h4>
             <ol className="mt-3 space-y-2 border-l border-border pl-3">
@@ -590,11 +461,20 @@ function PhotoDialog({ title, trigger, emptyLabel, count }: { title: string; tri
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {Array.from({ length: count }).map((_, i) => (
-            <div key={i} className="grid aspect-square place-items-center rounded-md bg-surface-2 font-mono text-[10px] text-muted-foreground">
-              {emptyLabel} {i + 1}
-            </div>
-          ))}
+          {Array.from({ length: count }).map((_, i) =>
+            i === 0 ? (
+              <img
+                key={i}
+                src={carPhoto1}
+                alt={`${emptyLabel} 1`}
+                className="aspect-square w-full rounded-md object-cover"
+              />
+            ) : (
+              <div key={i} className="grid aspect-square place-items-center rounded-md bg-surface-2 font-mono text-[10px] text-muted-foreground">
+                {emptyLabel} {i + 1}
+              </div>
+            )
+          )}
         </div>
       </DialogContent>
     </Dialog>

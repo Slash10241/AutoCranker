@@ -1,9 +1,12 @@
 """Application settings loaded from environment / .env file."""
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -51,6 +54,14 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="sqlite:///./autocranker.db",
         description="SQLAlchemy database URL. Defaults to SQLite.",
+    )
+    demo_customer_session_id: str = Field(
+        default="demo_leo_ekl7",
+        description="Mock WhatsApp session id that receives outbound quotations.",
+    )
+    uploads_dir: str = Field(
+        default=str(_BACKEND_DIR / "uploads"),
+        description="Directory for uploaded quote PDFs and other files.",
     )
 
 

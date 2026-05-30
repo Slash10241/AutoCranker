@@ -87,6 +87,20 @@ function daysOpenSince(isoString: string): number {
   return Math.max(0, Math.floor((Date.now() - new Date(isoString).getTime()) / 86_400_000));
 }
 
+const DEMO_SESSION_IDS = new Set(["demo_leo_ekl7", "demo_customer_1", "demo_customer"]);
+
+/** Display name for dashboard UI — demo sessions always show as Leo. */
+export function customerDisplayName(
+  name: string | null | undefined,
+  phoneNumber?: string | null,
+): string {
+  if (phoneNumber && DEMO_SESSION_IDS.has(phoneNumber)) return "Leo";
+  const raw = (name ?? "").trim();
+  if (!raw) return "Customer";
+  if (raw === "Demo Customer" || /^leo\s*\(demo\)$/i.test(raw)) return "Leo";
+  return raw.replace(/\s*\(demo\)\s*/gi, "").trim() || "Customer";
+}
+
 // ---------------------------------------------------------------------------
 // Adapters
 // ---------------------------------------------------------------------------
@@ -120,7 +134,7 @@ export function adaptCustomers(customers: BackendCustomer[]): Customer[] {
   return customers.map(
     (bc): Customer => ({
       id: `api-customer-${bc.id}`,
-      name: bc.name ?? bc.phone_number,
+      name: customerDisplayName(bc.name, bc.phone_number),
       email: "",
       phone: bc.phone_number,
     }),

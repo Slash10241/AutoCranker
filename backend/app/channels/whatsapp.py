@@ -90,7 +90,12 @@ def whatsapp_webhook(
     customer = get_or_create_customer(db, payload.wa_id, payload.name)
 
     # ----------------------------------------------------------------
-    # 2. Persist inbound message
+    # 2. Load prior context (before persisting this turn)
+    # ----------------------------------------------------------------
+    history = get_recent_history_for_llm(db, customer.id, limit=10)
+
+    # ----------------------------------------------------------------
+    # 3. Persist inbound message
     # ----------------------------------------------------------------
     create_message(
         db,
@@ -102,9 +107,8 @@ def whatsapp_webhook(
     )
 
     # ----------------------------------------------------------------
-    # 3. Load context for the intake agent
+    # 4. Load repair context for the intake agent
     # ----------------------------------------------------------------
-    history = get_recent_history_for_llm(db, customer.id, limit=10)
     active_case = get_active_repair_case_for_customer(db, customer.id)
 
     from app.db.models import Vehicle
@@ -114,7 +118,7 @@ def whatsapp_webhook(
     garage = get_garage_settings(db)
 
     # ----------------------------------------------------------------
-    # 4. Run intake agent
+    # 5. Run intake agent
     # ----------------------------------------------------------------
     result = services.intake_agent.run(
         message=payload.message,

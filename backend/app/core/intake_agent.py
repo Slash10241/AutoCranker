@@ -22,6 +22,14 @@ from app.core.llm import GeminiClient
 
 logger = logging.getLogger(__name__)
 
+# Hardcoded service history shown to the LLM when the demo customer (Leo) is
+# chatting. Lets the AI greet him by name and reference his car without asking
+# questions he "already answered". Keep this short so it doesn't bloat the prompt.
+_DEMO_LEO_HISTORY = """Returning customer. Vehicle on record: 2023 Porsche 911 GT3 RS (grey). \
+Last visit: March 2025, general inspection, no issues found. \
+Do not ask for make, model, or year — they are already known. \
+Do ask for the problem description and current mileage."""
+
 
 @dataclass
 class IntakeResult:
@@ -136,10 +144,25 @@ class IntakeAgent:
         opening_hours = _format_opening_hours(garage)
 
         customer_name = customer.name or "Unknown"
+
+        # For the demo customer, substitute known vehicle info so the agent
+        # treats the GT3 RS as already on record and skips those questions.
+        is_demo_leo = customer.phone_number.startswith("demo_leo")
+        if is_demo_leo and not vehicle:
+            from app.db.models import Vehicle as VehicleModel
+            vehicle = VehicleModel(  # type: ignore[call-arg]
+                make="Porsche", model="911 GT3 RS", year=2023, mileage=8200
+            )
+
         vehicle_text = _format_vehicle(vehicle)
         active_case_text = _format_active_case(active_case)
         history_text = _format_history(history)
         booked_slots_text = _format_booked_slots(booked_slots)
+
+        demo_history_section = (
+            f"\n=== RETURNING CUSTOMER — SERVICE HISTORY ===\n{_DEMO_LEO_HISTORY}\n"
+            if is_demo_leo else ""
+        )
 
         system_prefix = f"{self.system_prompt}\n\n" if self.system_prompt else ""
         return f"""{system_prefix}You are the AI front-desk assistant for {garage_name}, a car repair garage.
@@ -155,7 +178,7 @@ WhatsApp: {customer.phone_number}
 
 === KNOWN VEHICLE ===
 {vehicle_text}
-
+{demo_history_section}
 === ACTIVE REPAIR CASE ===
 {active_case_text}
 
@@ -188,7 +211,8 @@ RULES:
 9. For any vehicle fields the customer did not provide or skipped, always return null — never guess.
 
 URGENCY values: "low" | "medium" | "medium_high" | "high" | "critical"
-STATUS values: "collecting_info" | "appointment_booked"
+STATUS values: "collecting_info" | "appointment_booked" | "customer_approved"
+10. If the active case status is "quote_sent" and the customer's message clearly accepts or approves the estimate (e.g. "yes", "go ahead", "I approve", "looks good", "proceed"), set repair_case.should_create_or_update=true and status="customer_approved". Reply confirming we'll start work shortly.
 
 Return ONLY the following JSON (no markdown fences, no extra text):
 {{

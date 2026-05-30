@@ -10,7 +10,19 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, GarageSettings, InventoryItem, Provider, RepairCase, Vehicle
+from app.config import get_settings
+from app.db.models import (
+    Customer,
+    GarageSettings,
+    InventoryItem,
+    Message,
+    Provider,
+    RepairCase,
+    Vehicle,
+)
+
+DEMO_CUSTOMER_NAME = "Leo"
+_LEGACY_DEMO_PHONES = frozenset({"demo_customer_1", "demo_customer"})
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +31,7 @@ def seed_demo_data(db: Session) -> None:
     _seed_garage(db)
     _seed_inventory(db)
     _seed_providers(db)
+    _sync_demo_customer(db)
     _seed_example_case(db)
     db.commit()
     logger.info("Demo seed data ensured.")
@@ -91,12 +104,40 @@ def _seed_providers(db: Session) -> None:
     db.flush()
 
 
-def _seed_example_case(db: Session) -> None:
-    if db.query(Customer).first():
-        return
-    customer = Customer(phone_number="34600000001", name="Carlos Garcia")
-    db.add(customer)
+def _sync_demo_customer(db: Session) -> Customer:
+    """Ensure the mock WhatsApp demo customer is always Leo on the canonical session id."""
+    session_id = get_settings().demo_customer_session_id
+    demo = db.query(Customer).filter(Customer.phone_number == session_id).first()
+    if not demo:
+        demo = Customer(phone_number=session_id, name=DEMO_CUSTOMER_NAME)
+        db.add(demo)
+        db.flush()
+    else:
+        demo.name = DEMO_CUSTOMER_NAME
+
+    for legacy_phone in _LEGACY_DEMO_PHONES:
+        legacy = db.query(Customer).filter(Customer.phone_number == legacy_phone).first()
+        if not legacy or legacy.id == demo.id:
+            continue
+        db.query(RepairCase).filter(RepairCase.customer_id == legacy.id).update(
+            {RepairCase.customer_id: demo.id}, synchronize_session=False
+        )
+        db.query(Vehicle).filter(Vehicle.customer_id == legacy.id).update(
+            {Vehicle.customer_id: demo.id}, synchronize_session=False
+        )
+        db.query(Message).filter(Message.customer_id == legacy.id).update(
+            {Message.customer_id: demo.id}, synchronize_session=False
+        )
+        db.delete(legacy)
+
     db.flush()
+    return demo
+
+
+def _seed_example_case(db: Session) -> None:
+    if db.query(RepairCase).first():
+        return
+    customer = _sync_demo_customer(db)
 
     vehicle = Vehicle(
         customer_id=customer.id,

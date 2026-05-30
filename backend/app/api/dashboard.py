@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.crud import (
     create_inspection,
+    create_message,
     create_quotation_with_items,
     create_repair_case,
     get_customer,
@@ -39,6 +44,7 @@ from app.schemas import (
     ProviderOut,
     QuotationOut,
     QuotationUpdate,
+    SendQuotationToCustomer,
     RepairCaseCreate,
     RepairCaseListItemOut,
     RepairCaseOut,
@@ -373,6 +379,99 @@ def api_approve_quotation(quotation_id: int, db: Session = Depends(get_db)) -> Q
     update_repair_case(db, quotation.repair_case_id, {"status": "quote_draft"})
     db.refresh(quotation)
     return quotation
+
+
+@router.post("/repair-cases/{case_id}/quotation/send-to-customer")
+def api_send_quotation_to_customer(
+    case_id: int,
+    body: SendQuotationToCustomer,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Deliver estimate text + PDF to the customer's WhatsApp thread (mock chat)."""
+    case = get_repair_case(db, case_id)
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repair case not found")
+
+    customer = case.customer or get_customer(db, case.customer_id)
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+    quotation = get_latest_quotation(db, case_id)
+    settings = get_settings()
+
+    raw_b64 = body.pdf_base64.strip()
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    try:
+        pdf_bytes = base64.b64decode(raw_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid pdf_base64 payload",
+        ) from exc
+
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Decoded payload is not a PDF",
+        )
+
+    quotes_dir = Path(settings.uploads_dir) / "quotes"
+    quotes_dir.mkdir(parents=True, exist_ok=True)
+    filename = body.filename or f"quotation-case-{case_id}.pdf"
+    if not filename.lower().endswith(".pdf"):
+        filename = f"{filename}.pdf"
+    disk_name = f"quote-{quotation.id if quotation else case_id}.pdf"
+    disk_path = quotes_dir / disk_name
+    disk_path.write_bytes(pdf_bytes)
+    attachment_url = f"/uploads/quotes/{disk_name}"
+
+    display_name = (customer.name or "there").strip()
+    first_name = display_name.split()[0] if display_name else "there"
+    summary = (
+        (body.summary_text or "").strip()
+        or (quotation.customer_explanation if quotation and quotation.customer_explanation else "")
+        or (case.problem_summary or "")
+    ).strip()
+
+    intro = f"Hi {first_name}! Your repair estimate from Coppi Garage is ready."
+    if quotation:
+        intro += f" Total: {quotation.currency} {quotation.total:.2f}."
+    intro += " Please review the attached PDF and let us know if you'd like to proceed."
+
+    message_text = intro
+    if summary:
+        message_text = f"{intro}\n\n{summary}"
+
+    create_message(
+        db,
+        customer_id=customer.id,
+        role="assistant",
+        content=message_text,
+        channel="whatsapp",
+    )
+    create_message(
+        db,
+        customer_id=customer.id,
+        role="assistant",
+        content=filename,
+        channel="whatsapp",
+        message_type="document",
+        attachment_url=attachment_url,
+        attachment_filename=filename,
+    )
+
+    update_repair_case(db, case_id, {"status": "quote_sent"})
+    if quotation:
+        update_quotation(db, quotation.id, {"status": "sent_to_customer"})
+
+    logger.info(
+        "Quotation sent to customer %s for case %d (%s)",
+        customer.phone_number,
+        case_id,
+        filename,
+    )
+    return {"ok": True, "attachment_url": attachment_url, "filename": filename}
 
 
 # ---------------------------------------------------------------------------

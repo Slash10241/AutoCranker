@@ -11,10 +11,21 @@ from app.config import get_settings
 from app.db.models import Base
 
 
+def _sqlite_on_connect(dbapi_conn, _connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 def _make_engine():
     url = get_settings().database_url
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args, echo=False)
+    engine = create_engine(url, connect_args=connect_args, echo=False)
+    if url.startswith("sqlite"):
+        from sqlalchemy import event
+
+        event.listen(engine, "connect", _sqlite_on_connect)
+    return engine
 
 
 # Created lazily on first use so config is already loaded.
@@ -51,6 +62,9 @@ def migrate_db() -> None:
         "ALTER TABLE repair_cases ADD COLUMN appointment_type VARCHAR(100)",
         "ALTER TABLE repair_cases ADD COLUMN calendar_notes TEXT",
         "ALTER TABLE garage_settings ADD COLUMN tax_rate REAL DEFAULT 0.21",
+        "ALTER TABLE messages ADD COLUMN message_type VARCHAR(30) DEFAULT 'text'",
+        "ALTER TABLE messages ADD COLUMN attachment_url VARCHAR(500)",
+        "ALTER TABLE messages ADD COLUMN attachment_filename VARCHAR(300)",
     ]
     engine = get_engine()
     with engine.connect() as conn:

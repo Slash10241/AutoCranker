@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { defaultCalendarSelectedDate, formatWeekdayLongDate } from "@/lib/format-date";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -20,10 +21,7 @@ const SERVICES = ["Oil change", "Brake job", "Diagnostic", "Tire rotation", "AC 
 
 function OwnerCalendar() {
   const { state, update } = useStore();
-  const [selected, setSelected] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  });
+  const [selected, setSelected] = useState(defaultCalendarSelectedDate);
   const [open, setOpen] = useState(false);
   const marked = state.appointments.map((a) => a.date);
   const dayAppts = state.appointments.filter((a) => a.date === selected);
@@ -102,7 +100,7 @@ function OwnerCalendar() {
         <MonthCalendar markedDates={marked} events={eventsByDate} selected={selected} onSelectDate={setSelected} />
         <div className="space-y-3">
           <h3 className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            {new Date(selected).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+            {formatWeekdayLongDate(new Date(selected + "T12:00:00"))}
           </h3>
           {dayAppts.length === 0 ? (
             <Card className="bg-surface"><CardContent className="p-6 text-center font-mono text-xs text-muted-foreground">No appointments.</CardContent></Card>

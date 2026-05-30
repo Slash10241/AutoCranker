@@ -161,4 +161,13 @@ export const api = {
 
   generateChatSummary: (caseId: number) =>
     apiFetch<{ summary: string }>(`/api/repair-cases/${caseId}/chat-summary`, { method: "POST" }),
+
+  sendQuotationToCustomer: (
+    caseId: number,
+    body: { pdf_base64: string; filename?: string; summary_text?: string },
+  ) =>
+    apiFetch<{ ok: boolean; attachment_url: string; filename: string }>(
+      `/api/repair-cases/${caseId}/quotation/send-to-customer`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
 };

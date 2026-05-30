@@ -114,10 +114,19 @@ class MessageOut(BaseModel):
     role: str
     content: str
     channel: str
+    message_type: str = "text"
+    attachment_url: Optional[str] = None
+    attachment_filename: Optional[str] = None
     external_message_id: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SendQuotationToCustomer(BaseModel):
+    pdf_base64: str
+    filename: Optional[str] = None
+    summary_text: Optional[str] = None
 
 
 class RepairCaseOut(BaseModel):
