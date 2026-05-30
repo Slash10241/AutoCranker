@@ -119,7 +119,6 @@ function CaseDetailPage() {
         ],
       }));
       invalidatePdf();
-      toast.success(`Generated ${items.length} line items (${quotation.currency} ${quotation.total.toFixed(2)})`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Failed to generate quotation";
       toast.error(message);
@@ -144,7 +143,6 @@ function CaseDetailPage() {
     const doc = buildQuotationPdf(c, cu, v, c.lineItems);
     doc.save(`${GARAGE_INFO.name.replace(/\s+/g, "-")}-quotation-${c.id}.pdf`);
     setPdfGenerated(true);
-    toast.success("Quotation PDF generated");
   };
 
   const sendEstimate = async () => {
@@ -180,7 +178,6 @@ function CaseDetailPage() {
       patchBackendCase(caseId, "Awaiting Customer Approval").catch(() => {
         toast.error("Sent to WhatsApp but failed to sync case status");
       });
-      toast.success("Estimate sent to Leo on WhatsApp demo");
       navigate({ to: "/owner/cases" });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Failed to send estimate";
@@ -226,7 +223,6 @@ function CaseDetailPage() {
             <div>
               <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Customer</div>
               <div className="text-sm">{cu.name}</div>
-              <div className="font-mono text-xs text-muted-foreground">{cu.phone}</div>
             </div>
             <div>
               <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Vehicle</div>

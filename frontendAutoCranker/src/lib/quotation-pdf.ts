@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { customerContactLine } from "@/lib/backend-adapter";
 import { GARAGE_INFO, type Case, type Customer, type LineItem, type Vehicle } from "@/lib/mock-data";
 
 export function buildQuotationPdf(
@@ -55,8 +56,8 @@ export function buildQuotationPdf(
   doc.setFontSize(10);
   doc.setTextColor(...dark);
   doc.text(cu.name, margin, y + 6);
-  doc.text(cu.phone, margin, y + 11);
-  doc.text(cu.email, margin, y + 16);
+  const contact = customerContactLine(cu.phone, cu.email);
+  if (contact) doc.text(contact, margin, y + 11);
 
   doc.text(`${v.year} ${v.make} ${v.model}`, margin + colW, y + 6);
   doc.text(`Plate: ${v.plate}`, margin + colW, y + 11);

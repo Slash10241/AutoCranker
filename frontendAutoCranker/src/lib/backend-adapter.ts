@@ -88,6 +88,49 @@ function daysOpenSince(isoString: string): number {
 }
 
 // ---------------------------------------------------------------------------
+// Customer display (UI only — internal ids stay on phone / _customerPhone)
+// ---------------------------------------------------------------------------
+
+function looksLikeSessionId(value: string): boolean {
+  return /^demo_[a-z0-9_]+$/i.test(value) || /^[a-z]+_[a-z0-9_]+$/i.test(value);
+}
+
+function nameFromSessionId(sessionId: string): string | null {
+  const match = sessionId.match(/^demo_([a-z]+)/i);
+  if (!match) return null;
+  const part = match[1];
+  return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+}
+
+/** Human-readable customer name for the dashboard (no demo labels or session ids). */
+export function customerDisplayName(
+  name: string | null | undefined,
+  phoneNumber?: string | null,
+): string {
+  const raw = (name ?? "").trim();
+  if (raw) {
+    const stripped = raw.replace(/\s*\(demo\)\s*/gi, "").trim();
+    if (stripped && !looksLikeSessionId(stripped)) return stripped;
+    const fromRaw = nameFromSessionId(stripped);
+    if (fromRaw) return fromRaw;
+    if (stripped) return stripped;
+  }
+  if (phoneNumber) {
+    const fromPhone = nameFromSessionId(phoneNumber);
+    if (fromPhone) return fromPhone;
+    if (!looksLikeSessionId(phoneNumber)) return phoneNumber;
+  }
+  return "Customer";
+}
+
+/** Contact line for PDFs etc. — omits WhatsApp session ids. */
+export function customerContactLine(phone: string, email: string): string | null {
+  if (email.trim()) return email.trim();
+  if (phone.trim() && !looksLikeSessionId(phone)) return phone.trim();
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Adapters
 // ---------------------------------------------------------------------------
 
@@ -120,7 +163,7 @@ export function adaptCustomers(customers: BackendCustomer[]): Customer[] {
   return customers.map(
     (bc): Customer => ({
       id: `api-customer-${bc.id}`,
-      name: bc.name ?? bc.phone_number,
+      name: customerDisplayName(bc.name, bc.phone_number),
       email: "",
       phone: bc.phone_number,
     }),
