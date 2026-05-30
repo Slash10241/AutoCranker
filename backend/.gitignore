@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 .uv/
+/backend/autocranker.db
+uploads/
