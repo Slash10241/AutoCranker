@@ -6,15 +6,15 @@ import logoUrl from "@/assets/logo.png";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "AutoCranker — WhatsApp Demo" },
-      { name: "description", content: "Mock WhatsApp chat with the AutoCranker AI garage assistant." },
+      { title: "Coppi Garage — WhatsApp" },
+      { name: "description", content: "Mock WhatsApp chat with Coppi Garage." },
     ],
   }),
   component: Index,
 });
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
-const GREETING = "👋 Hi! I'm the AutoCranker assistant. How can I help you with your car today?";
+const GREETING = "👋 Hi! Welcome to Coppi Garage. How can we help you with your car today?";
 const STORAGE_KEY = "wa_demo_profiles_v1";
 
 const PRESETS = [
@@ -325,11 +325,11 @@ function Index() {
           >
             <img
               src={logoUrl}
-              alt="Auto Care Garage"
-              className="w-10 h-10 rounded-full shrink-0 object-cover bg-white"
+              alt="Coppi Garage"
+              className="w-10 h-10 rounded-full shrink-0 object-cover bg-black"
             />
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-[15px] leading-tight">AutoCranker</div>
+              <div className="font-medium text-[15px] leading-tight">Coppi Garage</div>
               <div className="text-[12px] opacity-90 leading-tight truncate">
                 Chatting as {active?.name ?? "—"} · Online
               </div>
