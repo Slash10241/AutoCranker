@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 if TYPE_CHECKING:
     from app.db.models import GarageSettings, InventoryItem, RepairCase, Vehicle
 
+from app.core.agent_log import log_agent_run
 from app.core.llm import GeminiClient
 
 logger = logging.getLogger(__name__)
@@ -56,21 +57,56 @@ class QuotationAgent:
         garage: Optional["GarageSettings"],
         inventory: List["InventoryItem"],
     ) -> QuotationAgentResult:
+        label = f"case_id={repair_case.id}"
         if not self.llm_client.available:
             logger.warning("QuotationAgent: LLM not available, using fallback")
-            return self._fallback(raw_notes)
+            result = self._fallback(raw_notes)
+            log_agent_run("quotation", label, notes=raw_notes, fallback="llm_unavailable", result=result)
+            return result
 
         prompt = self._build_prompt(raw_notes, repair_case, vehicle, garage, inventory)
         raw = self.llm_client.generate_json(prompt)
         if not raw:
             logger.warning("QuotationAgent: LLM returned empty/invalid JSON, using fallback")
-            return self._fallback(raw_notes)
+            result = self._fallback(raw_notes)
+            log_agent_run(
+                "quotation",
+                label,
+                notes=raw_notes,
+                prompt=prompt,
+                raw=self.llm_client.last_raw_response,
+                fallback="empty_or_invalid_json",
+                result=result,
+            )
+            return result
 
         try:
-            return self._parse_result(raw, garage, inventory)
-        except Exception:
+            result = self._parse_result(raw, garage, inventory)
+            log_agent_run(
+                "quotation",
+                label,
+                notes=raw_notes,
+                prompt=prompt,
+                raw=self.llm_client.last_raw_response,
+                parsed=raw,
+                result=result,
+            )
+            return result
+        except Exception as exc:
             logger.exception("QuotationAgent: failed to parse LLM result")
-            return self._fallback(raw_notes)
+            result = self._fallback(raw_notes)
+            log_agent_run(
+                "quotation",
+                label,
+                notes=raw_notes,
+                prompt=prompt,
+                raw=self.llm_client.last_raw_response,
+                parsed=raw,
+                error=str(exc),
+                fallback=True,
+                result=result,
+            )
+            return result
 
     # ------------------------------------------------------------------
     # Prompt building
@@ -254,6 +290,7 @@ Return ONLY the following JSON (no markdown, no extra text):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
 
 def _fuzzy_inventory_price(description: str, inv_lookup: Dict[str, float]) -> Optional[float]:
     """Return inventory price if description closely matches an inventory item name."""

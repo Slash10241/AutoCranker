@@ -27,6 +27,8 @@ class GeminiClient:
         self.model = settings.gemini_model
         self.app_name = settings.app_name
         self._client = None
+        self.last_prompt: Optional[str] = None
+        self.last_raw_response: Optional[str] = None
 
         if not self.enabled or not self.api_key:
             return
@@ -45,6 +47,8 @@ class GeminiClient:
 
     def generate_json(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Send a raw prompt and return the parsed JSON dict, or None on failure."""
+        self.last_prompt = prompt
+        self.last_raw_response = None
         if not self.available:
             return None
         try:
@@ -59,6 +63,7 @@ class GeminiClient:
                 ),
             )
             raw_text = getattr(response, "text", "") or ""
+            self.last_raw_response = raw_text
             return self._parse_json(raw_text)
         except Exception:
             logger.exception("generate_json failed")

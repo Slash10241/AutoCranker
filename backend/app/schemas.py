@@ -292,3 +292,4 @@ class QuotationUpdate(BaseModel):
     subtotal: Optional[float] = None
     tax: Optional[float] = None
     total: Optional[float] = None
+

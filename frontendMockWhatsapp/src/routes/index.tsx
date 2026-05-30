@@ -92,6 +92,33 @@ function Index() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [active?.messages, typing, activeId]);
 
+  // Hydrate chat history from backend on mount and profile switch
+  useEffect(() => {
+    if (!active) return;
+    const sessionId = active.sessionId;
+    fetch(`${API_BASE}/api/chat/${sessionId}/messages`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((msgs: { role: string; content: string; created_at: string }[]) => {
+        if (!msgs.length) return;
+        const hydrated: Msg[] = msgs.map((m) => ({
+          id: makeId(),
+          role: m.role === "customer" ? "user" : "ai",
+          text: m.content,
+          time: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        }));
+        setState((s) => ({
+          ...s,
+          profiles: s.profiles.map((p) =>
+            p.sessionId === sessionId ? { ...p, messages: hydrated } : p,
+          ),
+        }));
+      })
+      .catch(() => {
+        // backend unreachable or no history yet — keep local state
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
   function updateActive(updater: (p: Profile) => Profile) {
     setState((s) => ({
       ...s,
@@ -113,10 +140,10 @@ function Index() {
     const sessionId = active.sessionId;
     const name = active.name;
     try {
-      const res = await fetch(`${API_BASE}/api/demo-chat/send`, {
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, name, message: trimmed }),
+        body: JSON.stringify({ session_id: sessionId, name, message: trimmed, message_id: `msg-${Date.now()}` }),
       });
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
@@ -151,13 +178,8 @@ function Index() {
     }
   }
 
-  async function handleReset() {
+  function handleReset() {
     if (!active) return;
-    try {
-      await fetch(`${API_BASE}/api/demo-chat/session/${active.sessionId}`, { method: "DELETE" });
-    } catch {
-      // ignore
-    }
     updateActive((p) => ({ ...p, messages: [freshGreeting()] }));
     setInput("");
     setTyping(false);

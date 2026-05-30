@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 if TYPE_CHECKING:
     from app.db.models import Customer, GarageSettings, RepairCase, Vehicle
 
+from app.core.agent_log import log_agent_run
 from app.core.llm import GeminiClient
 
 logger = logging.getLogger(__name__)
@@ -62,21 +63,56 @@ class IntakeAgent:
         vehicle: Optional["Vehicle"],
         garage: Optional["GarageSettings"],
     ) -> IntakeResult:
+        label = f"customer_id={customer.id}"
         if not self.llm_client.available:
             logger.warning("IntakeAgent: LLM not available, using fallback reply")
-            return self._fallback(message, customer)
+            result = self._fallback(message, customer)
+            log_agent_run("intake", label, message=message, fallback="llm_unavailable", result=result)
+            return result
 
         prompt = self._build_prompt(message, history, customer, active_case, vehicle, garage)
         raw = self.llm_client.generate_json(prompt)
         if not raw:
             logger.warning("IntakeAgent: LLM returned empty/invalid JSON, using fallback")
-            return self._fallback(message, customer)
+            result = self._fallback(message, customer)
+            log_agent_run(
+                "intake",
+                label,
+                message=message,
+                prompt=prompt,
+                raw=self.llm_client.last_raw_response,
+                fallback="empty_or_invalid_json",
+                result=result,
+            )
+            return result
 
         try:
-            return self._parse_result(raw)
-        except Exception:
+            result = self._parse_result(raw)
+            log_agent_run(
+                "intake",
+                label,
+                message=message,
+                prompt=prompt,
+                raw=self.llm_client.last_raw_response,
+                parsed=raw,
+                result=result,
+            )
+            return result
+        except Exception as exc:
             logger.exception("IntakeAgent: failed to parse LLM result")
-            return self._fallback(message, customer)
+            result = self._fallback(message, customer)
+            log_agent_run(
+                "intake",
+                label,
+                message=message,
+                prompt=prompt,
+                raw=self.llm_client.last_raw_response,
+                parsed=raw,
+                error=str(exc),
+                fallback=True,
+                result=result,
+            )
+            return result
 
     # ------------------------------------------------------------------
     # Prompt building
