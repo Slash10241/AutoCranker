@@ -94,7 +94,7 @@ def _seed_providers(db: Session) -> None:
 def _seed_example_case(db: Session) -> None:
     if db.query(Customer).first():
         return
-    customer = Customer(phone_number="34600000001", name="Carlos Garcia (Demo)")
+    customer = Customer(phone_number="34600000001", name="Carlos Garcia")
     db.add(customer)
     db.flush()
 
@@ -112,9 +112,9 @@ def _seed_example_case(db: Session) -> None:
     case = RepairCase(
         customer_id=customer.id,
         vehicle_id=vehicle.id,
-        status="appointment_booked",
-        title="90k service + brakes",
-        problem_summary="Customer reports vibration when braking at high speed. Full service and brake pad inspection scheduled.",
+        status="checked_in",
+        title="Brake noise",
+        problem_summary="Customer reports squealing brake noise at low speed. Front pads and rotors to be inspected.",
         urgency="medium",
     )
     db.add(case)

@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "sonner";
 import { formatDateTimeUTC } from "@/lib/format-date";
 import { seedChatSummaries } from "@/lib/mock-chats";
-import { generateQuotation } from "@/lib/api/quote.functions";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/owner/cases/$caseId/")({
   component: CaseDetailPage,
@@ -74,27 +74,37 @@ function CaseDetailPage() {
       toast.error("Write an inspection report first");
       return;
     }
+    if (!c._backendId) {
+      toast.error("This case is not synced with the backend");
+      return;
+    }
     setGenerating(true);
     try {
-      const result = await generateQuotation({
-        data: {
-          inspectionReport,
-          vehicle: `${v.year} ${v.make} ${v.model}`,
-          service: c.service,
-        },
-      });
-      const items: LineItem[] = result.lineItems.map((li, i) => ({
-        id: "li" + Date.now() + "-" + i,
-        name: li.name,
-        qty: li.qty,
-        unitCost: li.unitCost,
-        type: li.type,
+      await api.submitInspection(c._backendId, { raw_notes: inspectionReport });
+      const quotation = await api.generateQuotation(c._backendId);
+      const items: LineItem[] = quotation.items.map((item, i) => ({
+        id: `li-${quotation.id}-${i}`,
+        name: item.description,
+        qty: item.quantity,
+        unitCost: item.unit_price,
+        type: item.item_type === "labor" ? "labor" : "part",
       }));
-      updateCase((c) => ({ ...c, lineItems: items }));
+      updateCase((prev) => ({
+        ...prev,
+        lineItems: items,
+        status: "Awaiting Customer Approval",
+        pipelineStep: 2,
+        internalNotes: quotation.internal_summary ?? prev.internalNotes,
+        timeline: [
+          ...prev.timeline,
+          { at: new Date().toISOString(), label: "AI quotation generated" },
+        ],
+      }));
       invalidatePdf();
-      toast.success(`Generated ${items.length} line items`);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to generate quotation");
+      toast.success(`Generated ${items.length} line items (${quotation.currency} ${quotation.total.toFixed(2)})`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to generate quotation";
+      toast.error(message);
     } finally {
       setGenerating(false);
     }

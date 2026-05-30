@@ -79,6 +79,45 @@ export interface BackendGarageSettings {
   currency: string;
 }
 
+export interface BackendInspection {
+  id: number;
+  repair_case_id: number;
+  technician_name: string | null;
+  raw_notes: string;
+  ai_summary: string | null;
+  urgency: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BackendQuotationItem {
+  id: number;
+  quotation_id: number;
+  item_type: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
+  source: string;
+}
+
+export interface BackendQuotation {
+  id: number;
+  repair_case_id: number;
+  inspection_id: number | null;
+  status: string;
+  internal_summary: string | null;
+  customer_explanation: string | null;
+  urgency: string | null;
+  subtotal: number;
+  tax: number;
+  total: number;
+  currency: string;
+  items: BackendQuotationItem[];
+  created_at: string;
+  updated_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
@@ -102,4 +141,21 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+
+  submitInspection: (
+    caseId: number,
+    body: { raw_notes: string; technician_name?: string },
+  ) =>
+    apiFetch<BackendInspection>(`/api/repair-cases/${caseId}/inspection`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  generateQuotation: (caseId: number) =>
+    apiFetch<BackendQuotation>(`/api/repair-cases/${caseId}/quotation/generate`, {
+      method: "POST",
+    }),
+
+  getQuotation: (caseId: number) =>
+    apiFetch<BackendQuotation>(`/api/repair-cases/${caseId}/quotation`),
 };
