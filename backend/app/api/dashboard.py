@@ -164,6 +164,58 @@ def api_update_repair_case(
 
 
 # ---------------------------------------------------------------------------
+# Chat summary
+# ---------------------------------------------------------------------------
+
+
+@router.post("/repair-cases/{case_id}/chat-summary")
+def api_chat_summary(case_id: int, db: Session = Depends(get_db)) -> dict:
+    case = get_repair_case(db, case_id)
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repair case not found")
+
+    messages = get_messages_for_customer(db, case.customer_id, limit=100)
+    if not messages:
+        return {"summary": "No messages found for this case."}
+
+    services = get_services()
+    if not services.llm_client.available:
+        return {"summary": "AI summary unavailable — LLM not configured."}
+
+    transcript = "\n".join(
+        f"[{m.role.upper()}]: {m.content}" for m in messages
+    )
+
+    vehicle = case.vehicle
+    vehicle_hint = ""
+    if vehicle:
+        parts = [vehicle.make, vehicle.model, str(vehicle.year) if vehicle.year else None]
+        vehicle_hint = " ".join(p for p in parts if p)
+
+    prompt = f"""You are a garage assistant. Read the following WhatsApp conversation between a customer and the AutoCranker AI intake bot.
+
+Write a concise 2-3 sentence summary for the garage technician covering:
+1. The main problem(s) the customer reported
+2. Key vehicle details (make, model, year, mileage if mentioned)
+3. Any urgency or important context
+
+Be factual, terse, and professional. Do not include greetings or filler.
+
+Known vehicle: {vehicle_hint or "unknown"}
+
+--- TRANSCRIPT ---
+{transcript}
+--- END TRANSCRIPT ---
+
+Return ONLY JSON:
+{{"summary": "your summary here"}}"""
+
+    result = services.llm_client.generate_json(prompt)
+    summary = (result or {}).get("summary", "Could not generate summary.")
+    return {"summary": summary}
+
+
+# ---------------------------------------------------------------------------
 # Check-in
 # ---------------------------------------------------------------------------
 

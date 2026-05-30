@@ -66,29 +66,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (hydrated) localStorage.setItem(KEY, JSON.stringify(state));
   }, [state, hydrated]);
 
-  // 3. Fetch live data from the backend and replace mock seeds.
-  //    Falls back silently to mock data if the backend is offline.
+  // 3. Fetch live data from the backend and replace mock seeds. Poll every 5s.
   useEffect(() => {
     if (!hydrated) return;
 
-    Promise.all([
-      api.listRepairCases(),
-      api.listCustomers(),
-      api.listInventory(),
-    ])
-      .then(([cases, customers, inventory]) => {
-        setState((prev) => ({
-          ...prev,
-          cases: adaptCases(cases),
-          customers: adaptCustomers(customers),
-          vehicles: extractVehicles(cases),
-          appointments: extractAppointments(cases),
-          inventory: adaptInventory(inventory),
-        }));
-      })
-      .catch(() => {
-        // Backend offline — keep mock data, no error shown to user.
-      });
+    const fetchFromBackend = () =>
+      Promise.all([
+        api.listRepairCases(),
+        api.listCustomers(),
+        api.listInventory(),
+      ])
+        .then(([cases, customers, inventory]) => {
+          setState((prev) => {
+            const adapted = adaptCases(cases).map((next) => {
+              const existing = prev.cases.find((c) => c.id === next.id);
+              if (!existing) return next;
+              return {
+                ...next,
+                // preserve fields that only exist locally and are never in backend response
+                inspectionReport: existing.inspectionReport,
+                chatSummary: existing.chatSummary,
+                lineItems: existing.lineItems,
+                internalNotes: existing.internalNotes,
+                mechanicId: existing.mechanicId,
+              };
+            });
+            return {
+              ...prev,
+              cases: adapted,
+              customers: adaptCustomers(customers),
+              vehicles: extractVehicles(cases),
+              appointments: extractAppointments(cases),
+              inventory: adaptInventory(inventory),
+            };
+          });
+        })
+        .catch(() => {
+          // Backend offline — keep current data, no error shown to user.
+        });
+
+    fetchFromBackend();
+    const interval = setInterval(fetchFromBackend, 5000);
+    return () => clearInterval(interval);
   }, [hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = (fn: (s: State) => State) => setState((s) => fn(s));

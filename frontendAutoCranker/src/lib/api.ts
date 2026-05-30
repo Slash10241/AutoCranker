@@ -167,4 +167,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  generateChatSummary: (caseId: number) =>
+    apiFetch<{ summary: string }>(`/api/repair-cases/${caseId}/chat-summary`, { method: "POST" }),
 };

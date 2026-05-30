@@ -1,18 +1,14 @@
 """Application settings loaded from environment / .env file."""
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_BACKEND_DIR = Path(__file__).resolve().parents[1]
-_DEFAULT_DB_PATH = (_BACKEND_DIR / "autocranker.db").as_posix()
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_BACKEND_DIR / ".env"),
+        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -48,9 +44,13 @@ class Settings(BaseSettings):
         default=True,
         description="If false, bypasses Gemini and uses fallback replies.",
     )
+    intake_system_prompt: str = Field(
+        default="",
+        description="Optional system prompt prepended to the intake agent prompt.",
+    )
     database_url: str = Field(
-        default=f"sqlite:///{_DEFAULT_DB_PATH}",
-        description="SQLAlchemy database URL. Defaults to backend/autocranker.db.",
+        default="sqlite:///./autocranker.db",
+        description="SQLAlchemy database URL. Defaults to SQLite.",
     )
     demo_customer_session_id: str = Field(
         default="demo_leo_ekl7",
