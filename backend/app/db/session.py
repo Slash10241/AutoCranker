@@ -51,6 +51,9 @@ def migrate_db() -> None:
         "ALTER TABLE repair_cases ADD COLUMN appointment_type VARCHAR(100)",
         "ALTER TABLE repair_cases ADD COLUMN calendar_notes TEXT",
         "ALTER TABLE garage_settings ADD COLUMN tax_rate REAL DEFAULT 0.21",
+        "ALTER TABLE messages ADD COLUMN message_type VARCHAR(20) DEFAULT 'text'",
+        "ALTER TABLE messages ADD COLUMN attachment_url VARCHAR(500)",
+        "ALTER TABLE messages ADD COLUMN attachment_filename VARCHAR(300)",
     ]
     engine = get_engine()
     with engine.connect() as conn:

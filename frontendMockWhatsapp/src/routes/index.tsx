@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { Send, Mic, MoreVertical, RotateCcw, Plus, Trash2, UserCircle2, ChevronLeft, ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Send, Mic, MoreVertical, RotateCcw, FileText } from "lucide-react";
 import logoUrl from "@/assets/logo.png";
 
 export const Route = createFileRoute("/")({
@@ -25,8 +25,26 @@ const PRESETS = [
   "Tomorrow at 10:30 works",
 ];
 
+type BackendMessage = {
+  id: number;
+  role: string;
+  content: string;
+  message_type?: string;
+  attachment_url?: string | null;
+  attachment_filename?: string | null;
+  created_at: string;
+};
+
 type Msg =
   | { id: string; role: "user" | "ai"; text: string; time: string }
+  | {
+      id: string;
+      role: "ai";
+      kind: "document";
+      filename: string;
+      url: string;
+      time: string;
+    }
   | { id: string; role: "system"; text: string; time: string };
 
 type Profile = {
@@ -48,139 +66,145 @@ function freshGreeting(): Msg {
   return { id: "greet", role: "ai", text: GREETING, time: nowTime() };
 }
 
-function defaultProfiles(): Profile[] {
-  return [
-    { id: "p1", name: "Demo Customer", sessionId: "demo_customer_1", messages: [freshGreeting()] },
-  ];
+function defaultProfile(): Profile {
+  return {
+    id: "leo",
+    name: "Leo",
+    sessionId: DEMO_SESSION_ID,
+    messages: [freshGreeting()],
+  };
 }
 
-function loadProfiles(): { profiles: Profile[]; activeId: string } {
-  if (typeof window === "undefined") {
-    const ps = defaultProfiles();
-    return { profiles: ps, activeId: ps[0].id };
-  }
+function loadProfile(): Profile {
+  if (typeof window === "undefined") return defaultProfile();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as { profiles: Profile[]; activeId: string };
-      if (parsed.profiles?.length) return parsed;
+      const parsed = JSON.parse(raw) as Profile;
+      if (parsed.sessionId === DEMO_SESSION_ID) return parsed;
     }
   } catch {
     // ignore
   }
-  const ps = defaultProfiles();
-  return { profiles: ps, activeId: ps[0].id };
+  return defaultProfile();
+}
+
+function mapBackendMessages(msgs: BackendMessage[]): Msg[] {
+  return msgs.map((m) => {
+    const time = new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const id = `api-${m.id}`;
+    if (m.message_type === "document" && m.attachment_url) {
+      return {
+        id,
+        role: "ai" as const,
+        kind: "document" as const,
+        filename: m.attachment_filename || m.content || "quotation.pdf",
+        url: m.attachment_url.startsWith("http") ? m.attachment_url : `${API_BASE}${m.attachment_url}`,
+        time,
+      };
+    }
+    return {
+      id,
+      role: m.role === "customer" ? ("user" as const) : ("ai" as const),
+      text: m.content,
+      time,
+    };
+  });
 }
 
 function Index() {
-  const [{ profiles, activeId }, setState] = useState(loadProfiles);
+  const [profile, setProfile] = useState<Profile>(loadProfile);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const active = profiles.find((p) => p.id === activeId) ?? profiles[0];
-
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, activeId }));
-  }, [profiles, activeId]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+  }, [profile]);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [active?.messages, typing, activeId]);
+  }, [profile.messages, typing]);
 
-  // Hydrate chat history from backend on mount and profile switch
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/chat/${DEMO_SESSION_ID}/messages`);
+      if (!res.ok) return;
+      const msgs: BackendMessage[] = await res.json();
+      if (!msgs.length) return;
+      setProfile((p) => ({ ...p, messages: mapBackendMessages(msgs) }));
+    } catch {
+      // backend offline
+    }
+  }, []);
+
   useEffect(() => {
-    if (!active) return;
-    const sessionId = active.sessionId;
-    fetch(`${API_BASE}/api/chat/${sessionId}/messages`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((msgs: { role: string; content: string; created_at: string }[]) => {
-        if (!msgs.length) return;
-        const hydrated: Msg[] = msgs.map((m) => ({
-          id: makeId(),
-          role: m.role === "customer" ? "user" : "ai",
-          text: m.content,
-          time: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        }));
-        setState((s) => ({
-          ...s,
-          profiles: s.profiles.map((p) =>
-            p.sessionId === sessionId ? { ...p, messages: hydrated } : p,
-          ),
-        }));
-      })
-      .catch(() => {
-        // backend unreachable or no history yet — keep local state
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+    fetchMessages();
+  }, [fetchMessages]);
 
-  function updateActive(updater: (p: Profile) => Profile) {
-    setState((s) => ({
-      ...s,
-      profiles: s.profiles.map((p) => (p.id === s.activeId ? updater(p) : p)),
-    }));
-  }
+  useEffect(() => {
+    const poll = () => {
+      if (document.visibilityState === "visible") fetchMessages();
+    };
+    const id = setInterval(poll, 4000);
+    return () => clearInterval(id);
+  }, [fetchMessages]);
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || !active) return;
+    if (!trimmed) return;
     setInput("");
-    updateActive((p) => ({
+    setProfile((p) => ({
       ...p,
       messages: [...p.messages, { id: makeId(), role: "user", text: trimmed, time: nowTime() }],
     }));
     setTyping(true);
 
     const typingStart = Date.now();
-    const sessionId = active.sessionId;
-    const name = active.name;
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, name, message: trimmed, message_id: `msg-${Date.now()}` }),
+        body: JSON.stringify({
+          session_id: DEMO_SESSION_ID,
+          name: profile.name,
+          message: trimmed,
+          message_id: `msg-${Date.now()}`,
+        }),
       });
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
-      const reply: string = data?.reply ?? data?.message ?? data?.response ?? "(no reply)";
+      const reply: string = data?.reply ?? "";
       const elapsed = Date.now() - typingStart;
       if (elapsed < 800) await new Promise((r) => setTimeout(r, 800 - elapsed));
       setTyping(false);
-      setState((s) => ({
-        ...s,
-        profiles: s.profiles.map((p) =>
-          p.sessionId === sessionId
-            ? { ...p, messages: [...p.messages, { id: makeId(), role: "ai", text: reply, time: nowTime() }] }
-            : p,
-        ),
-      }));
+      if (reply) {
+        setProfile((p) => ({
+          ...p,
+          messages: [...p.messages, { id: makeId(), role: "ai", text: reply, time: nowTime() }],
+        }));
+      }
+      await fetchMessages();
     } catch {
       setTyping(false);
-      setState((s) => ({
-        ...s,
-        profiles: s.profiles.map((p) =>
-          p.sessionId === sessionId
-            ? {
-                ...p,
-                messages: [
-                  ...p.messages,
-                  { id: makeId(), role: "system", text: "Message failed to send. Check backend connection.", time: nowTime() },
-                ],
-              }
-            : p,
-        ),
+      setProfile((p) => ({
+        ...p,
+        messages: [
+          ...p.messages,
+          {
+            id: makeId(),
+            role: "system",
+            text: "Message failed to send. Check backend connection.",
+            time: nowTime(),
+          },
+        ],
       }));
     }
   }
 
   function handleReset() {
-    if (!active) return;
-    updateActive((p) => ({ ...p, messages: [freshGreeting()] }));
+    setProfile({ ...defaultProfile() });
     setInput("");
     setTyping(false);
   }
@@ -190,135 +214,16 @@ function Index() {
     sendMessage(input);
   }
 
-  function handleAddProfile(e: React.FormEvent) {
-    e.preventDefault();
-    const name = newName.trim();
-    if (!name) return;
-    const id = makeId();
-    const sessionId = `demo_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${id.slice(0, 4)}`;
-    const profile: Profile = { id, name, sessionId, messages: [freshGreeting()] };
-    setState((s) => ({ profiles: [...s.profiles, profile], activeId: id }));
-    setNewName("");
-    setAdding(false);
-  }
-
-  function handleSelect(id: string) {
-    setState((s) => ({ ...s, activeId: id }));
-    setTyping(false);
-    setInput("");
-  }
-
-  function handleDelete(id: string) {
-    setState((s) => {
-      const remaining = s.profiles.filter((p) => p.id !== id);
-      const next = remaining.length ? remaining : defaultProfiles();
-      const nextActive = s.activeId === id ? next[0].id : s.activeId;
-      return { profiles: next, activeId: nextActive };
-    });
-  }
-
   return (
     <div
-      className="min-h-screen w-full flex flex-col sm:flex-row items-center sm:items-start justify-center gap-4 p-4 sm:p-6"
+      className="min-h-screen w-full flex flex-col items-center justify-center p-4 sm:p-6"
       style={{ backgroundColor: "#0b141a", fontFamily: "Roboto, system-ui, -apple-system, sans-serif" }}
     >
-      {/* Profile sidebar (collapsible) */}
-      <aside
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          sidebarOpen ? "w-full sm:w-56 opacity-100" : "w-0 opacity-0 sm:h-[720px] pointer-events-none"
-        }`}
-        aria-hidden={!sidebarOpen}
-      >
-        <div className="w-full sm:w-56 bg-[#111b21] text-gray-100 rounded-2xl p-3 sm:h-[720px] flex flex-col gap-2 border border-white/5">
-          <div className="text-[12px] uppercase tracking-wider text-gray-400 px-1 pt-1">Profiles</div>
-          <div className="flex-1 overflow-y-auto flex flex-col gap-1">
-            {profiles.map((p) => {
-              const isActive = p.id === activeId;
-              return (
-                <div
-                  key={p.id}
-                  className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors ${
-                    isActive ? "bg-[#25D366]/15 ring-1 ring-[#25D366]/40" : "hover:bg-white/5"
-                  }`}
-                  onClick={() => handleSelect(p.id)}
-                >
-                  <UserCircle2 size={22} className={isActive ? "text-[#25D366]" : "text-gray-400"} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13.5px] truncate">{p.name}</div>
-                    <div className="text-[11px] text-gray-500 truncate">{p.sessionId}</div>
-                  </div>
-                  {profiles.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(p.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-opacity"
-                      aria-label={`Delete ${p.name}`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {adding ? (
-            <form onSubmit={handleAddProfile} className="flex flex-col gap-2 pt-2 border-t border-white/10">
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Customer name"
-                className="bg-[#1f2c33] rounded-md px-2 py-1.5 text-[13px] outline-none placeholder:text-gray-500"
-              />
-              <div className="flex gap-2">
-                <button type="submit" className="flex-1 bg-[#25D366] text-black text-[12.5px] font-medium rounded-md py-1.5">
-                  Add
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAdding(false);
-                    setNewName("");
-                  }}
-                  className="flex-1 bg-white/5 text-[12.5px] rounded-md py-1.5"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="flex items-center justify-center gap-1.5 text-[13px] bg-white/5 hover:bg-white/10 rounded-lg py-2 transition-colors"
-            >
-              <Plus size={14} /> New profile
-            </button>
-          )}
-        </div>
-      </aside>
-
-      <div className="flex flex-col items-center gap-4">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen((v) => !v)}
-            aria-label={sidebarOpen ? "Hide profiles" : "Show profiles"}
-            className="hidden absolute top-1/2 -translate-y-1/2 right-full z-10 px-1.5 py-3 rounded-l-md text-white shadow-md transition-colors bg-slate-800 items-center justify-center sm:flex flex-col gap-1 text-[11px] tracking-wider"
-          >
-            {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-            <span className="[writing-mode:vertical-rl] rotate-180">Profiles</span>
-          </button>
-          <div
-            className="relative flex flex-col bg-white overflow-hidden w-full sm:w-[380px] h-[100svh] sm:h-[720px] sm:rounded-[28px]"
-            style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}
-          >
-
-          {/* Header */}
+      <div className="flex flex-col items-center gap-4 w-full max-w-[380px]">
+        <div
+          className="relative flex flex-col bg-white overflow-hidden w-full h-[100svh] sm:h-[720px] sm:rounded-[28px]"
+          style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}
+        >
           <div
             className="flex items-center gap-3 px-3 py-2.5 text-white shrink-0"
             style={{ backgroundColor: "#128C7E" }}
@@ -337,7 +242,6 @@ function Index() {
             <MoreVertical size={20} className="opacity-90" />
           </div>
 
-          {/* Chat area */}
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-1.5"
@@ -347,14 +251,39 @@ function Index() {
                 "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><circle cx='2' cy='2' r='1' fill='%23d8cfc2' opacity='0.4'/></svg>\")",
             }}
           >
-            {active?.messages.map((m) => {
+            {profile.messages.map((m) => {
               if (m.role === "system") {
                 return (
-                  <div key={m.id} className="self-center my-1 px-3 py-1.5 rounded-md text-[12px] text-white" style={{ backgroundColor: "#d9534f" }}>
+                  <div
+                    key={m.id}
+                    className="self-center my-1 px-3 py-1.5 rounded-md text-[12px] text-white"
+                    style={{ backgroundColor: "#d9534f" }}
+                  >
                     {m.text}
                   </div>
                 );
               }
+              if ("kind" in m && m.kind === "document") {
+                return (
+                  <a
+                    key={m.id}
+                    href={m.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="self-start max-w-[85%] flex items-center gap-3 px-3 py-2.5 rounded-lg shadow-sm border border-[#c5e1a5] bg-[#DCF8C6] text-[#111] hover:bg-[#d4f0bc] transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-md bg-white/80 flex items-center justify-center shrink-0">
+                      <FileText size={22} className="text-red-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[14px] font-medium truncate">{m.filename}</div>
+                      <div className="text-[11px] text-gray-600">PDF · Tap to open</div>
+                    </div>
+                    <span className="text-[11px] text-gray-500 shrink-0">{m.time}</span>
+                  </a>
+                );
+              }
+              if (!("text" in m)) return null;
               const isUser = m.role === "user";
               return (
                 <div
@@ -385,7 +314,6 @@ function Index() {
             )}
           </div>
 
-          {/* Quick replies */}
           <div className="shrink-0 px-2 py-2 bg-white border-t border-gray-100 overflow-x-auto">
             <div className="flex gap-2 w-max">
               {PRESETS.map((p) => (
@@ -402,7 +330,6 @@ function Index() {
             </div>
           </div>
 
-          {/* Input bar */}
           <form onSubmit={handleSubmit} className="shrink-0 flex items-center gap-2 px-2 py-2 bg-white border-t border-gray-100">
             <button type="button" className="p-2 text-gray-500" aria-label="Voice (disabled)">
               <Mic size={22} />
@@ -422,17 +349,14 @@ function Index() {
               <Send size={18} />
             </button>
           </form>
-          </div>
         </div>
-
-
 
         <button
           type="button"
           onClick={handleReset}
           className="inline-flex items-center gap-1.5 text-[13px] text-gray-300 hover:text-white transition-colors"
         >
-          <RotateCcw size={14} /> Reset conversation
+          <RotateCcw size={14} /> Reset local view
         </button>
       </div>
 

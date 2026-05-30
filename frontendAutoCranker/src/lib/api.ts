@@ -159,6 +159,15 @@ export const api = {
   getQuotation: (caseId: number) =>
     apiFetch<BackendQuotation>(`/api/repair-cases/${caseId}/quotation`),
 
+  sendQuotationToCustomer: (
+    caseId: number,
+    body: { pdf_base64: string; filename?: string; summary_text?: string },
+  ) =>
+    apiFetch<BackendQuotation>(`/api/repair-cases/${caseId}/quotation/send`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   generateChatSummary: (caseId: number) =>
     apiFetch<{ summary: string }>(`/api/repair-cases/${caseId}/chat-summary`, { method: "POST" }),
 };

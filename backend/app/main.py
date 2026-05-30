@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.chat import router as chat_router
 from app.api.dashboard import router as dashboard_router
@@ -39,6 +41,8 @@ async def lifespan(_: FastAPI):
     # Initialise database and run migrations + seed.
     init_db()
     migrate_db()
+    uploads_dir = Path(settings.uploads_dir)
+    (uploads_dir / "quotes").mkdir(parents=True, exist_ok=True)
     factory = get_session_factory()
     with factory() as db:
         seed_demo_data(db)
@@ -77,6 +81,10 @@ def health() -> Dict[str, str]:
 app.include_router(whatsapp_router)
 app.include_router(chat_router)
 app.include_router(dashboard_router)
+
+_uploads_path = Path(get_settings().uploads_dir)
+_uploads_path.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_path)), name="uploads")
 
 
 if get_settings().debug:

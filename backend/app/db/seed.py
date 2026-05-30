@@ -49,24 +49,48 @@ def _seed_garage(db: Session) -> None:
     db.flush()
 
 
+# Canonical English catalog (upserted on every seed run).
+_INVENTORY_CATALOG: list[dict] = [
+    {"name": "Front brake pads (set)", "sku": "BRK-FRT-001", "quantity_available": 12, "unit_cost": 18.00, "selling_price": 65.00},
+    {"name": "Front brake discs (pair)", "sku": "BRK-DSC-001", "quantity_available": 8, "unit_cost": 45.00, "selling_price": 85.00},
+    {"name": "Brake fluid (500ml)", "sku": "BRK-FLD-001", "quantity_available": 20, "unit_cost": 5.00, "selling_price": 15.00},
+    {"name": "Rear brake pads (set)", "sku": "BRK-RR-001", "quantity_available": 10, "unit_cost": 15.00, "selling_price": 55.00},
+    {"name": "Oil filter", "sku": "FLT-OIL-001", "quantity_available": 25, "unit_cost": 4.50, "selling_price": 12.00},
+    {"name": "Engine oil 5W-30 (5L)", "sku": "OIL-5W30-5L", "quantity_available": 40, "unit_cost": 12.00, "selling_price": 32.00},
+    {"name": "Air filter", "sku": "FLT-AIR-001", "quantity_available": 15, "unit_cost": 8.00, "selling_price": 22.00},
+    {"name": "Cabin air filter", "sku": "FLT-CAB-001", "quantity_available": 20, "unit_cost": 5.00, "selling_price": 18.00},
+    {"name": "Spark plugs (set x4)", "sku": "SPK-004", "quantity_available": 30, "unit_cost": 8.00, "selling_price": 28.00},
+    {"name": "Car battery 70Ah", "sku": "BAT-70AH", "quantity_available": 6, "unit_cost": 65.00, "selling_price": 120.00},
+    {"name": "Timing belt kit", "sku": "TBL-KIT-001", "quantity_available": 5, "unit_cost": 55.00, "selling_price": 110.00},
+    {"name": "Wiper blades (pair)", "sku": "WPR-001", "quantity_available": 18, "unit_cost": 7.00, "selling_price": 20.00},
+]
+
+# Older Spanish seed SKUs mapped to the canonical catalog.
+_LEGACY_INVENTORY_SKUS: dict[str, str] = {
+    "FLT-001": "FLT-OIL-001",
+    "TBL-001": "TBL-KIT-001",
+    "CAB-001": "FLT-CAB-001",
+}
+
+
 def _seed_inventory(db: Session) -> None:
-    if db.query(InventoryItem).first():
-        return
-    items = [
-        InventoryItem(name="Front brake pads (set)", sku="BRK-FRT-001", quantity_available=12, unit_cost=18.00, selling_price=65.00),
-        InventoryItem(name="Front brake discs (pair)", sku="BRK-DSC-001", quantity_available=8, unit_cost=45.00, selling_price=85.00),
-        InventoryItem(name="Brake fluid (500ml)", sku="BRK-FLD-001", quantity_available=20, unit_cost=5.00, selling_price=15.00),
-        InventoryItem(name="Rear brake pads (set)", sku="BRK-RR-001", quantity_available=10, unit_cost=15.00, selling_price=55.00),
-        InventoryItem(name="Oil filter", sku="FLT-OIL-001", quantity_available=25, unit_cost=4.50, selling_price=12.00),
-        InventoryItem(name="Engine oil 5W-30 (5L)", sku="OIL-5W30-5L", quantity_available=40, unit_cost=12.00, selling_price=32.00),
-        InventoryItem(name="Air filter", sku="FLT-AIR-001", quantity_available=15, unit_cost=8.00, selling_price=22.00),
-        InventoryItem(name="Cabin air filter", sku="FLT-CAB-001", quantity_available=20, unit_cost=5.00, selling_price=18.00),
-        InventoryItem(name="Spark plugs (set x4)", sku="SPK-004", quantity_available=30, unit_cost=8.00, selling_price=28.00),
-        InventoryItem(name="Car battery 70Ah", sku="BAT-70AH", quantity_available=6, unit_cost=65.00, selling_price=120.00),
-        InventoryItem(name="Timing belt kit", sku="TBL-KIT-001", quantity_available=5, unit_cost=55.00, selling_price=110.00),
-        InventoryItem(name="Wiper blades (pair)", sku="WPR-001", quantity_available=18, unit_cost=7.00, selling_price=20.00),
-    ]
-    db.add_all(items)
+    for spec in _INVENTORY_CATALOG:
+        sku = spec["sku"]
+        row = db.query(InventoryItem).filter(InventoryItem.sku == sku).first()
+        if not row:
+            for legacy_sku, canonical_sku in _LEGACY_INVENTORY_SKUS.items():
+                if canonical_sku == sku:
+                    row = db.query(InventoryItem).filter(InventoryItem.sku == legacy_sku).first()
+                    if row:
+                        row.sku = sku
+                        break
+        if row:
+            row.name = spec["name"]
+            row.quantity_available = spec["quantity_available"]
+            row.unit_cost = spec["unit_cost"]
+            row.selling_price = spec["selling_price"]
+        else:
+            db.add(InventoryItem(**spec))
     db.flush()
 
 
@@ -94,7 +118,7 @@ def _seed_providers(db: Session) -> None:
 def _seed_example_case(db: Session) -> None:
     if db.query(Customer).first():
         return
-    customer = Customer(phone_number="34600000001", name="Carlos Garcia")
+    customer = Customer(phone_number="demo_leo_ekl7", name="Leo (Demo)")
     db.add(customer)
     db.flush()
 

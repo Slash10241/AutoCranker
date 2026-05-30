@@ -85,7 +85,7 @@ function ChatPage() {
             <div className="min-w-0">
               <div className="truncate font-semibold">{cu.name}</div>
               <div className="flex items-center gap-1 text-[11px] opacity-80">
-                <Bot className="h-3 w-3" /> Chatted with AutoCranker AI · {cu.phone}
+                <Bot className="h-3 w-3" /> Chatted with AutoCranker AI
               </div>
             </div>
           </div>

@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import Settings, get_settings
 from app.db.crud import (
     create_inspection,
+    create_message,
     create_quotation_with_items,
     create_repair_case,
     get_customer,
@@ -19,6 +24,7 @@ from app.db.crud import (
     get_latest_inspection,
     get_latest_quotation,
     get_messages_for_customer,
+    get_or_create_customer,
     get_quotation,
     get_repair_case,
     list_customers,
@@ -28,6 +34,7 @@ from app.db.crud import (
     update_quotation,
     update_repair_case,
 )
+from app.db.models import QuotationStatus, RepairCaseStatus
 from app.db.session import get_db
 from app.schemas import (
     CustomerOut,
@@ -38,6 +45,7 @@ from app.schemas import (
     MessageOut,
     ProviderOut,
     QuotationOut,
+    QuotationSendRequest,
     QuotationUpdate,
     RepairCaseCreate,
     RepairCaseListItemOut,
@@ -372,6 +380,101 @@ def api_approve_quotation(quotation_id: int, db: Session = Depends(get_db)) -> Q
     update_quotation(db, quotation_id, {"status": "approved_by_owner"})
     update_repair_case(db, quotation.repair_case_id, {"status": "quote_draft"})
     db.refresh(quotation)
+    return quotation
+
+
+@router.post("/repair-cases/{case_id}/quotation/send", response_model=QuotationOut)
+def api_send_quotation_to_customer(
+    case_id: int,
+    body: QuotationSendRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> QuotationOut:
+    case = get_repair_case(db, case_id)
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repair case not found")
+
+    quotation = get_latest_quotation(db, case_id)
+    if not quotation:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No quotation found for this case. Generate a quotation first.",
+        )
+
+    raw_b64 = body.pdf_base64
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    try:
+        pdf_bytes = base64.b64decode(raw_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid pdf_base64 payload",
+        ) from exc
+
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Decoded payload is not a PDF file",
+        )
+
+    uploads_root = Path(settings.uploads_dir)
+    quotes_dir = uploads_root / "quotes"
+    quotes_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = body.filename or f"quotation-case-{case_id}.pdf"
+    if not filename.lower().endswith(".pdf"):
+        filename = f"{filename}.pdf"
+
+    disk_name = f"quote-{quotation.id}.pdf"
+    disk_path = quotes_dir / disk_name
+    disk_path.write_bytes(pdf_bytes)
+
+    attachment_url = f"/uploads/quotes/{disk_name}"
+    title = case.title or "your repair"
+    currency = quotation.currency or "EUR"
+    summary = body.summary_text or quotation.customer_explanation
+    if not summary:
+        summary = (
+            f"Your repair estimate for {title} is ready. "
+            f"Total: {currency} {quotation.total:.2f}. Please see the PDF below."
+        )
+
+    demo_customer = get_or_create_customer(
+        db,
+        settings.demo_customer_session_id,
+        name="Leo",
+    )
+
+    create_message(
+        db,
+        customer_id=demo_customer.id,
+        role="assistant",
+        content=summary,
+        channel="web",
+        message_type="text",
+    )
+    create_message(
+        db,
+        customer_id=demo_customer.id,
+        role="assistant",
+        content=filename,
+        channel="web",
+        message_type="document",
+        attachment_url=attachment_url,
+        attachment_filename=filename,
+    )
+
+    update_quotation(db, quotation.id, {"status": QuotationStatus.SENT_TO_CUSTOMER.value})
+    update_repair_case(db, case_id, {"status": RepairCaseStatus.QUOTE_SENT.value})
+    db.refresh(quotation)
+
+    logger.info(
+        "Quotation %d sent to session %s for case %d",
+        quotation.id,
+        settings.demo_customer_session_id,
+        case_id,
+    )
     return quotation
 
 
