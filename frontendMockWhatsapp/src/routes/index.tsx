@@ -284,6 +284,7 @@ function Index() {
                   </a>
                 );
               }
+              if (!("text" in m)) return null;
               const isUser = m.role === "user";
               return (
                 <div
