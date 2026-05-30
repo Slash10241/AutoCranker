@@ -84,11 +84,17 @@ def create_message(
     content: str,
     channel: str = "whatsapp",
     external_message_id: Optional[str] = None,
+    message_type: str = "text",
+    attachment_url: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
 ) -> Message:
     msg = Message(
         customer_id=customer_id,
         role=role,
         content=content,
+        message_type=message_type,
+        attachment_url=attachment_url,
+        attachment_filename=attachment_filename,
         channel=channel,
         external_message_id=external_message_id,
     )

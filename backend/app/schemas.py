@@ -113,11 +113,22 @@ class MessageOut(BaseModel):
     customer_id: int
     role: str
     content: str
+    message_type: str = "text"
+    attachment_url: Optional[str] = None
+    attachment_filename: Optional[str] = None
     channel: str
     external_message_id: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class QuotationSendRequest(BaseModel):
+    """Body for POST /repair-cases/{id}/quotation/send."""
+
+    pdf_base64: str
+    filename: Optional[str] = None
+    summary_text: Optional[str] = None
 
 
 class RepairCaseOut(BaseModel):

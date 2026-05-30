@@ -98,6 +98,9 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(String(20))  # customer | assistant | system
     content: Mapped[str] = mapped_column(Text)
+    message_type: Mapped[str] = mapped_column(String(20), default="text")
+    attachment_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    attachment_filename: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     channel: Mapped[str] = mapped_column(String(30), default="whatsapp")
     external_message_id: Mapped[Optional[str]] = mapped_column(
         String(200), nullable=True, index=True

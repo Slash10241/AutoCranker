@@ -94,7 +94,7 @@ def _seed_providers(db: Session) -> None:
 def _seed_example_case(db: Session) -> None:
     if db.query(Customer).first():
         return
-    customer = Customer(phone_number="34600000001", name="Carlos Garcia")
+    customer = Customer(phone_number="demo_leo_ekl7", name="Leo (Demo)")
     db.add(customer)
     db.flush()
 

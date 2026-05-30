@@ -52,6 +52,14 @@ class Settings(BaseSettings):
         default=f"sqlite:///{_DEFAULT_DB_PATH}",
         description="SQLAlchemy database URL. Defaults to backend/autocranker.db.",
     )
+    demo_customer_session_id: str = Field(
+        default="demo_leo_ekl7",
+        description="Mock WhatsApp session id that receives outbound quotations.",
+    )
+    uploads_dir: str = Field(
+        default=str(_BACKEND_DIR / "uploads"),
+        description="Directory for uploaded quote PDFs and other files.",
+    )
 
 
 @lru_cache(maxsize=1)
