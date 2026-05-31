@@ -4,8 +4,6 @@ The AI layer for car repair shops. Messy customer chat → structured repair cas
 
 **Three apps:** mock WhatsApp chat (`frontendMockWhatsapp`) · garage dashboard (`frontendAutoCranker`) · FastAPI backend (`backend`).
 
-**Demo flow:** customer messages in mock chat → AI intake (vehicle, problem, urgency) → case in dashboard → technician inspection → AI quote draft → owner approves → customer quote page.
-
 ## Start
 
 **Prerequisites:** Node 18+, [uv](https://docs.astral.sh/uv/), Python 3.11+
